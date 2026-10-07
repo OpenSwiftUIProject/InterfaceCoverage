@@ -1,4 +1,5 @@
 import ArgumentParser
+import CryptoKit
 import Foundation
 import InterfaceCoverage
 
@@ -6,6 +7,32 @@ import InterfaceCoverage
 struct InterfaceCoverageCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "interface-coverage",
+        abstract: "Compare Swift interfaces and generate coverage sites.",
+        subcommands: [CompareInterfaces.self, GenerateSite.self],
+        defaultSubcommand: CompareInterfaces.self
+    )
+}
+
+struct GenerateSite: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "site", abstract: "Generate a static coverage site from a report manifest."
+    )
+
+    @Option(help: "JSON manifest. Report paths are relative to this file.")
+    var manifest: String
+
+    @Option(help: "Output directory. It must be empty or contain a site made by this tool.")
+    var output: String
+
+    func run() throws {
+        try CoverageSite.generate(manifest: URL(fileURLWithPath: manifest), output: URL(fileURLWithPath: output))
+        print("Coverage site: \(URL(fileURLWithPath: output).appendingPathComponent("index.html").path)")
+    }
+}
+
+struct CompareInterfaces: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "compare",
         abstract: "Compare declarations in Swift module interfaces.",
         discussion: "Repeat --reference and --candidate to combine interfaces. Imports are not followed. Coverage measures declaration signatures, not implementation behavior."
     )
@@ -18,6 +45,9 @@ struct InterfaceCoverageCommand: ParsableCommand {
 
     @Option(help: "Map a module name: Source=Target. Repeat for more mappings.")
     var moduleAlias: [String] = []
+
+    @Option(help: "Ignore a namespace container in owners and type paths on both sides. Repeat for more names.")
+    var ignoreNamespace: [String] = []
 
     @Flag(help: "Disable the built-in OpenSwiftUI and OpenCombine module aliases.")
     var noDefaultAliases = false
@@ -77,6 +107,7 @@ struct InterfaceCoverageCommand: ParsableCommand {
             warnings.append("Input architectures differ. Declarations can depend on the architecture.")
         }
         var options = ScanOptions(
+            ignoredNamespaces: ignoreNamespace,
             excludeUnderscored: excludeUnderscored, includeSPI: includeSPI,
             platform: references.first?.target.flatMap(TargetPlatform.init(triple:))?.platform
         )
@@ -100,7 +131,7 @@ struct InterfaceCoverageCommand: ParsableCommand {
         let content: String
         switch format {
         case .text:
-            content = textReport(report, warnings: warnings)
+            content = textReport(report, warnings: warnings, ignoredNamespaces: options.ignoredNamespaces)
         case .json:
             let document = ReportDocument(
                 options: options, reference: references.map(InputDescription.init),
@@ -117,7 +148,7 @@ struct InterfaceCoverageCommand: ParsableCommand {
         }
     }
 
-    private func textReport(_ report: CoverageReport, warnings: [String]) -> String {
+    private func textReport(_ report: CoverageReport, warnings: [String], ignoredNamespaces: [String]) -> String {
         func percent(_ count: CoverageCount) -> String {
             count.percent.map { String(format: "%.2f%%", $0) } ?? "n/a"
         }
@@ -125,9 +156,11 @@ struct InterfaceCoverageCommand: ParsableCommand {
             "Interface declaration coverage: \(report.summary.matched)/\(report.summary.reference) (\(percent(report.summary)))",
             "Missing: \(report.summary.missing) | Extra: \(report.summary.extra)",
             "Scope: supplied files; all conditional branches; declaration signatures.",
-            "",
-            "Kind                 Reference  Matched  Missing  Extra  Coverage",
         ]
+        if !ignoredNamespaces.isEmpty {
+            lines.append("Ignored namespaces: \(ignoredNamespaces.joined(separator: ", ")).")
+        }
+        lines += ["", "Kind                 Reference  Matched  Missing  Extra  Coverage"]
         for row in report.byKind {
             let name = row.kind.rawValue.padding(toLength: 20, withPad: " ", startingAt: 0)
             lines.append(name + String(format: " %9d %8d %8d %6d  %@", row.count.reference, row.count.matched, row.count.missing, row.count.extra, percent(row.count)))
@@ -152,11 +185,16 @@ private struct InputDescription: Encodable {
     let path: String
     let module: String
     let target: String?
+    let sha256: String
+    let compiler: String?
 
     init(_ input: InterfaceInput) {
         path = input.path
         module = input.module
         target = input.target
+        sha256 = SHA256.hash(data: Data(input.source.utf8)).map { String(format: "%02x", $0) }.joined()
+        compiler = input.source.split(separator: "\n").first { $0.hasPrefix("// swift-compiler-version:") }
+            .map { String($0.dropFirst("// swift-compiler-version: ".count)) }
     }
 }
 

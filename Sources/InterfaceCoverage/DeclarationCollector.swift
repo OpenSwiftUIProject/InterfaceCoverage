@@ -45,15 +45,21 @@ final class DeclarationCollector {
         context.visible = visible(nominal.modifiers, nominal.attributes, name: name, context: parent)
         context.implicitPublic = nominal.kind == .protocol
         context.isEnum = nominal.kind == .enum
+        let ignoredNamespace = normalization.options.ignoredNamespaces.contains(name)
+        if ignoredNamespace && context.visible && nominal.parameters != nil {
+            throw failure("Cannot ignore generic namespace '\(name)'", node: node)
+        }
         let parameters = context.add(nominal.parameters)
         context.requirements += normalization.requirements(nominal.requirements, parameters: nominal.parameters, generics: context.generics)
         if indexOnly {
             types[context.owner] = context
         } else if context.visible {
-            let primaryTypes = normalization.text(nominal.primaryAssociatedTypes)
-            add(nominal.kind, name: name,
-                signature: "\(nominal.kind.rawValue) \(name)\(parameters)\(primaryTypes)",
-                context: context, owner: parent.owner, node: node)
+            if !ignoredNamespace {
+                let primaryTypes = normalization.text(nominal.primaryAssociatedTypes)
+                add(nominal.kind, name: name,
+                    signature: "\(nominal.kind.rawValue) \(name)\(parameters)\(primaryTypes)",
+                    context: context, owner: parent.owner, node: node)
+            }
             inherit(nominal.inheritance, context: context)
         }
         try collect(nominal.members.members.map(\.decl), context: context)
@@ -275,7 +281,9 @@ final class DeclarationCollector {
     ) {
         let position = converter.location(for: node.positionAfterSkippingLeadingTrivia)
         let location = SourceLocation(path: input.path, line: position.line)
-        let entry = APIEntry(kind: kind, owner: owner ?? context.owner, name: name,
+        // Keep original owners in the type index so flattened scopes cannot replace
+        // each other's generic parameters. Normalize only the emitted inventory.
+        let entry = APIEntry(kind: kind, owner: normalization.normalizedOwner(owner ?? context.owner), name: name,
                              signature: context.constrained(signature), locations: [location])
         if var existing = entries[entry.id] {
             if !existing.locations.contains(location) { existing.locations.append(location) }

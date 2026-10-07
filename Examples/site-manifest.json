@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "title": "InterfaceCoverage",
+  "reports": [
+    {
+      "project": "ExampleProject",
+      "version": "1.0.0",
+      "baseline": "Example SDK 1.0",
+      "target": "macOS",
+      "scope": "ExampleModule",
+      "profile": "Default",
+      "report": "reports/example.json",
+      "notes": ["Replace this entry with metadata for the measured interfaces."],
+      "metadata": {
+        "candidateCommit": "REPLACE_WITH_COMMIT_SHA",
+        "candidateOrigin": "Local build from release source",
+        "buildSDK": "REPLACE_WITH_BUILD_SDK",
+        "toolRevision": "REPLACE_WITH_TOOL_REVISION"
+      }
+    }
+  ]
+}

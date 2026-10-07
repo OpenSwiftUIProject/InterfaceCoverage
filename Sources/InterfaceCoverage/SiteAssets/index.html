@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Swift public interface coverage by project release and SDK baseline.">
+  <title>__TITLE__</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/site.css">
+  <script id="catalog" type="application/json">__CATALOG__</script>
+  <script src="assets/site.js" defer></script>
+</head>
+<body data-embed="__EMBED__">
+  <header class="site-header">
+    <a class="brand" href="index.html">__TITLE__</a>
+    <span class="header-caption">Public interface coverage</span>
+    <button id="embed-button" class="primary">Embed table</button>
+  </header>
+  <main>
+    <section class="intro">
+      <h1>API coverage</h1>
+      <p>Compare release interfaces against versioned SDK baselines.</p>
+    </section>
+    <nav id="projects" class="tabs" aria-label="Projects"></nav>
+    <section class="filters" aria-label="Report filters">
+      <label>Target<select id="target" aria-label="Target"></select></label>
+      <label>Scope<select id="scope" aria-label="Scope"></select></label>
+      <label>Matching<select id="profile" aria-label="Matching"></select></label>
+      <label>Baseline<select id="baseline" aria-label="Baseline"></select></label>
+    </section>
+    <section class="matrix-section" aria-labelledby="matrix-title">
+      <div class="section-title">
+        <div><h2 id="matrix-title">Version matrix</h2><p id="matrix-description">Select a result to inspect its declarations.</p></div>
+        <a id="full-report" class="embed-only" target="_blank" rel="noopener">Open full report</a>
+      </div>
+      <div id="matrix" class="table-scroll"></div>
+      <p id="matrix-notes" class="caption"></p>
+    </section>
+    <div id="detail" class="detail-area" aria-busy="false">
+      <section class="summary" aria-labelledby="result-title">
+        <div class="summary-header"><h3 id="result-title"></h3><a id="download" download>Download JSON</a></div>
+        <dl id="metrics" class="metrics"></dl>
+        <p class="caption scope-note">Declaration signatures only. Matching declarations can include stubs. All conditional branches are scanned.</p>
+      </section>
+      <div id="notices" aria-live="polite"></div>
+      <section aria-labelledby="declarations-title">
+        <h2 id="declarations-title">Declarations</h2>
+        <div class="declaration-toolbar">
+          <nav id="statuses" class="tabs" aria-label="Declaration status"></nav>
+          <label class="search"><span class="sr-only">Search names or signatures</span><input id="search" type="search" placeholder="Search names or signatures" autocomplete="off"></label>
+          <label><span class="sr-only">Declaration kind</span><select id="kind"><option value="">All kinds</option></select></label>
+        </div>
+        <p id="load-state" role="status" class="caption"></p>
+        <div class="table-scroll"><table class="declarations"><thead><tr><th scope="col">Kind</th><th scope="col">Declaration</th></tr></thead><tbody id="entries"></tbody></table></div>
+        <div class="pagination"><span id="result-count" class="caption" aria-live="polite"></span><button id="previous">Previous</button><button id="next">Next</button></div>
+      </section>
+      <details id="kinds"><summary>Coverage by declaration kind</summary><div id="kind-breakdown" class="table-scroll"></div></details>
+      <details id="provenance"><summary>Input metadata and matching rules</summary><div id="metadata"></div></details>
+    </div>
+    <noscript><p>JavaScript is required for interactive filtering. The <a href="catalog.json">JSON catalog</a> lists static Markdown and SVG table group IDs under <code>tables/</code>.</p></noscript>
+  </main>
+  <footer><span>InterfaceCoverage</span><span>Coverage of declarations, not implementation behavior.</span></footer>
+  <dialog id="embed-dialog">
+    <form method="dialog"><button class="close" aria-label="Close embed dialog">Close</button></form>
+    <h2>Embed this table</h2>
+    <p>The HTML embed follows the current project and filters.</p>
+    <label>HTML iframe<textarea id="embed-code" rows="4" readonly></textarea></label>
+    <button id="copy-embed" class="primary">Copy HTML</button><span id="copy-state" role="status"></span>
+    <div class="export-links"><a id="embed-preview" target="_blank" rel="noopener">Preview embed</a><a id="markdown-download" download>Markdown table</a><a id="svg-download" download>SVG table</a></div>
+    <p class="caption">Markdown and SVG include all baselines in this group. Use SVG or Markdown in a GitHub README.</p>
+  </dialog>
+</body>
+</html>

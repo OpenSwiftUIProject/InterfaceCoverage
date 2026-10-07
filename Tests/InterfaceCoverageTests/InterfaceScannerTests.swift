@@ -2,6 +2,44 @@ import Testing
 @testable import InterfaceCoverage
 
 struct InterfaceScannerTests {
+    @Test func moduleSelectorsMatchLegacyTypePathsAndExtensionOwners() throws {
+        let result = try compare(
+            """
+            public struct Box<Element> { public struct Nested {} }
+            extension SwiftUI::Box {
+              public func map<Output>(_ transform: (Element) -> Swift::Optional<Output>) -> SwiftUI::Box<Output>.SwiftUI::Nested
+            }
+            public func wrap<T>(_ value: T) -> Swift::Optional<T>.SwiftUI::Publisher
+            """,
+            """
+            public struct Box<Value> { public struct Nested {} }
+            extension OpenSwiftUI.Box {
+              public func map<Result>(_ transform: (Value) -> Swift.Optional<Result>) -> OpenSwiftUI.Box<Result>.Nested
+            }
+            public func wrap<U>(_ value: U) -> Swift.Optional<U>.Publisher
+            """
+        )
+        #expect(result.summary.reference == 4)
+        #expect(result.summary.matched == 4)
+    }
+
+    @Test func rootModuleSelectorsKeepExternalModuleIdentity() throws {
+        let result = try compare(
+            "public func read() -> First::Value",
+            "public func read() -> Second::Value"
+        )
+        #expect(result.summary.matched == 0)
+        #expect(result.summary.missing == 1)
+    }
+
+    @Test func moduleSelectorIsNotRenamedAsAGenericParameter() throws {
+        let result = try compare(
+            "public func read<External>(_ value: External) -> External::Value",
+            "public func read<T>(_ value: T) -> External.Value"
+        )
+        #expect(result.summary.matched == 1)
+    }
+
     private func input(_ source: String, module: String = "SwiftUI") -> InterfaceInput {
         InterfaceInput(path: "\(module).swiftinterface", module: module, source: source)
     }
@@ -316,5 +354,133 @@ struct InterfaceScannerTests {
         #expect(result.summary.reference == 4)
         #expect(result.summary.matched == 3)
         #expect(result.missing.first?.name == "compare")
+    }
+
+    @Test func namespaceIgnoringIsOptInAndNormalizesOwnersAndTypePaths() throws {
+        let reference = input("""
+            extension Swift.Optional {
+              public struct Publisher {
+                public func receive(_ value: Wrapped) -> Swift.Optional<Wrapped>.Publisher
+              }
+              public var publisher: Swift.Optional<Wrapped>.Publisher { get }
+            }
+            public func consume(_ publisher: Swift.Optional<Swift.Int>.Publisher)
+            """)
+        let candidate = input("""
+            extension Swift.Optional {
+              public struct Adapter {
+                public struct Publisher {
+                  public func receive(_ element: Wrapped) -> Swift.Optional<Wrapped>.Adapter.Publisher
+                }
+              }
+              public var publisher: Swift.Optional<Wrapped>.Adapter.Publisher { get }
+            }
+            public func consume(_ publisher: Swift.Optional<Swift.Int>.Adapter.Publisher)
+            """, module: "OpenSwiftUI")
+        let strict = InterfaceScanner()
+        let strictReport = try CoverageReport.compare(reference: strict.scan([reference]), candidate: strict.scan([candidate]))
+        #expect(strictReport.summary.reference == 4)
+        #expect(strictReport.summary.matched == 0)
+
+        let scanner = InterfaceScanner(options: ScanOptions(ignoredNamespaces: ["Adapter"]))
+        let report = try CoverageReport.compare(reference: scanner.scan([reference]), candidate: scanner.scan([candidate]))
+        #expect(report.summary.reference == 4)
+        #expect(report.summary.matched == 4)
+        #expect(report.summary.extra == 0)
+    }
+
+    @Test func namespaceRulesPreserveNamesLabelsModulesAndGenericArguments() throws {
+        let options = ScanOptions(moduleAliases: [:], ignoredNamespaces: ["Adapter", "Layer"])
+        let scanner = InterfaceScanner(options: options)
+        let reference = input("""
+            public struct Value {
+              public func Adapter(Adapter value: Swift.Int) -> Adapter.Value
+            }
+            public struct AdapterExtra {}
+            public func use<T>(_ value: Adapter.Box<Adapter.Value>.Child<T>)
+            """, module: "Adapter")
+        let candidate = input("""
+            public enum Adapter {
+              public enum Layer {
+                public struct Value {
+                  public func Adapter(Adapter value: Swift.Int) -> Adapter.Adapter.Layer.Value
+                }
+              }
+            }
+            public struct AdapterExtra {}
+            public func use<T>(_ value: Adapter.Box<Adapter.Adapter.Layer.Value>.Layer.Child<T>)
+            """, module: "Adapter")
+        let report = try CoverageReport.compare(reference: scanner.scan([reference]), candidate: scanner.scan([candidate]))
+        #expect(report.summary.reference == 4)
+        #expect(report.summary.matched == 4)
+        #expect(report.summary.extra == 0)
+        #expect(report.matched.contains { $0.name == "Adapter" && $0.signature.contains("Adapter:") })
+    }
+
+    @Test func namespaceRulesPreserveGenericTypeScopesAcrossExtensions() throws {
+        let scanner = InterfaceScanner(options: ScanOptions(ignoredNamespaces: ["Adapter"]))
+        let reference = input("""
+            public struct Box<Value> {
+              public func read() -> Value
+            }
+            """)
+        let candidate = input("""
+            public enum Adapter {
+              public struct Box<Element> {}
+            }
+            extension OpenSwiftUI.Adapter.Box {
+              public func read() -> Element
+            }
+            """, module: "OpenSwiftUI")
+        let report = try CoverageReport.compare(reference: scanner.scan([reference]), candidate: scanner.scan([candidate]))
+        #expect(report.summary.reference == 2)
+        #expect(report.summary.matched == 2)
+    }
+
+    @Test func namespaceRulesDeduplicateMatchesWithoutExposingHiddenTypes() throws {
+        let source = input("""
+            public struct Value { public func read() }
+            public enum Adapter {
+              public struct Value { public func read() }
+            }
+            private enum Layer {
+              public struct Hidden { public func read() }
+            }
+            """)
+        let scanner = InterfaceScanner(options: ScanOptions(ignoredNamespaces: ["Adapter", "Layer"]))
+        let inventory = try scanner.scan([source])
+        #expect(inventory.entries.count == 2)
+        #expect(inventory.entries.allSatisfy { $0.locations.count == 2 })
+    }
+
+    @Test func invalidNamespaceRulesAndGenericNamespacesAreRejected() throws {
+        for name in ["", "Outer.Inner", "123", "A<T>"] {
+            #expect(throws: CoverageError.self) {
+                try InterfaceScanner(options: ScanOptions(ignoredNamespaces: [name])).scan([])
+            }
+        }
+        #expect(throws: CoverageError.self) {
+            try InterfaceScanner(options: ScanOptions(ignoredNamespaces: ["Adapter"]))
+                .scan([input("public struct Adapter<T> { public struct Value {} }")])
+        }
+    }
+
+    @Test func namespaceNormalizationPrecedesStandardLibraryPrefixRemoval() throws {
+        let scanner = InterfaceScanner(options: ScanOptions(ignoredNamespaces: ["Layer"]))
+        let reference = input("""
+            public struct Value {
+              public func read(_ value: Swift.Value) -> Swift.Value
+            }
+            """, module: "Swift")
+        let candidate = input("""
+            public enum Layer {
+              public struct Value {
+                public func read(_ value: Swift.Layer.Value) -> Swift.Layer.Value
+              }
+            }
+            """, module: "Swift")
+        let report = try CoverageReport.compare(reference: scanner.scan([reference]), candidate: scanner.scan([candidate]))
+        #expect(report.summary.reference == 2)
+        #expect(report.summary.matched == 2)
     }
 }

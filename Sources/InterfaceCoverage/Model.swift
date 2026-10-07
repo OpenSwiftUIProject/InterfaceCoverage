@@ -30,9 +30,25 @@ public struct InterfaceInput: Sendable, Codable {
 
 public struct ScanOptions: Sendable, Codable {
     public var moduleAliases: [String: String]
+    public var ignoredNamespaces: [String]
     public var excludeUnderscored: Bool
     public var includeSPI: Bool
     public var platform: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case moduleAliases, ignoredNamespaces, excludeUnderscored, includeSPI, platform
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            moduleAliases: try values.decode([String: String].self, forKey: .moduleAliases),
+            ignoredNamespaces: try values.decodeIfPresent([String].self, forKey: .ignoredNamespaces) ?? [],
+            excludeUnderscored: try values.decode(Bool.self, forKey: .excludeUnderscored),
+            includeSPI: try values.decode(Bool.self, forKey: .includeSPI),
+            platform: try values.decodeIfPresent(String.self, forKey: .platform)
+        )
+    }
 
     public init(
         moduleAliases: [String: String] = [
@@ -42,11 +58,13 @@ public struct ScanOptions: Sendable, Codable {
             "OpenCombineFoundation": "Combine",
             "OpenCombineDispatch": "Combine",
         ],
+        ignoredNamespaces: [String] = [],
         excludeUnderscored: Bool = false,
         includeSPI: Bool = false,
         platform: String? = nil
     ) {
         self.moduleAliases = moduleAliases
+        self.ignoredNamespaces = Array(Set(ignoredNamespaces)).sorted()
         self.excludeUnderscored = excludeUnderscored
         self.includeSPI = includeSPI
         self.platform = platform
