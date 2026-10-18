@@ -265,6 +265,9 @@ versions can differ because an interface can declare APIs newer than that target
   In `@_opaqueReturnTypeOf` references, ignore the mangled name, which contains
   the module name, and compare the owner, ordinal, and generic arguments.
   An inline generic constraint and the same `where` constraint are equivalent.
+  `T: P & Q` and `T: P, T: Q` are equivalent. An opaque parameter type, such as
+  `some View`, is a generic parameter after the declared generic parameters,
+  as in the compiler.
 - Operator parameters have no external labels. Their local names, such as
   `lhs`/`rhs` or `a`/`b`, are ignored for all operators, including `static ==`.
   Ordinary function labels still distinguish overloads. Namespace containers

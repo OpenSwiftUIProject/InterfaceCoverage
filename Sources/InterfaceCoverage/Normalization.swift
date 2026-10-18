@@ -140,20 +140,36 @@ struct Normalization {
         parameters: GenericParameterClauseSyntax? = nil,
         generics: [String: String]
     ) -> [String] {
-        var result = clause?.requirements.map { requirement -> String in
-            let value = text(requirement.requirement, generics: generics)
+        var result = clause?.requirements.flatMap { requirement -> [String] in
             if let sameType = requirement.requirement.as(SameTypeRequirementSyntax.self) {
-                return [text(sameType.leftType, generics: generics), text(sameType.rightType, generics: generics)]
-                    .sorted().joined(separator: " == ")
+                return [[text(sameType.leftType, generics: generics), text(sameType.rightType, generics: generics)]
+                    .sorted().joined(separator: " == ")]
             }
-            return value
+            if let conformance = requirement.requirement.as(ConformanceRequirementSyntax.self) {
+                return conformances(text(conformance.leftType, generics: generics), conformance.rightType, generics: generics)
+            }
+            return [text(requirement.requirement, generics: generics)]
         } ?? []
         for parameter in parameters?.parameters ?? [] {
             if let inherited = parameter.inheritedType {
-                result.append("\(generics[parameter.name.text] ?? parameter.name.text) : \(text(inherited, generics: generics))")
+                result += conformances(generics[parameter.name.text] ?? parameter.name.text, inherited, generics: generics)
             }
         }
         return result
+    }
+
+    /// Splits `T: P & Q` into `T: P` and `T: Q`, which have the same meaning.
+    func conformances(_ subject: String, _ type: TypeSyntax, generics: [String: String]) -> [String] {
+        let types = type.as(CompositionTypeSyntax.self)?.elements.map(\.type) ?? [type]
+        return types.map { "\(subject) : \(text($0, generics: generics))" }
+    }
+
+    /// Replaces each opaque parameter type (`some P`) with a placeholder
+    /// generic parameter. The compiler adds these after the declared ones.
+    func opaqueParameters(_ clause: FunctionParameterClauseSyntax) -> (FunctionParameterClauseSyntax, [OpaqueParameter]) {
+        let rewriter = OpaqueParameterRewriter()
+        let result = rewriter.rewrite(clause).cast(FunctionParameterClauseSyntax.self)
+        return (result, rewriter.parameters)
     }
 }
 
@@ -165,13 +181,14 @@ struct DeclarationContext {
     var implicitPublic = false
     var isEnum = false
 
-    mutating func add(_ parameters: GenericParameterClauseSyntax?) -> String {
+    mutating func add(_ parameters: GenericParameterClauseSyntax?, opaque: [OpaqueParameter] = []) -> String {
         var names: [String] = []
         let start = Set(generics.values).count
-        for (index, parameter) in (parameters?.parameters ?? []).enumerated() {
+        let declared = (parameters?.parameters ?? []).map { ($0.name.text, $0.specifier.map { $0.text + " " } ?? "") }
+        for (index, (parameter, specifier)) in (declared + opaque.map { ($0.name, "") }).enumerated() {
             let name = "T\(start + index)"
-            generics[parameter.name.text] = name
-            names.append((parameter.specifier.map { $0.text + " " } ?? "") + name)
+            generics[parameter] = name
+            names.append(specifier + name)
         }
         return names.isEmpty ? "" : "<\(names.joined(separator: ", "))>"
     }
@@ -179,5 +196,21 @@ struct DeclarationContext {
     func constrained(_ signature: String) -> String {
         let requirements = Set(requirements).sorted()
         return requirements.isEmpty ? signature : "\(signature) where \(requirements.joined(separator: ", "))"
+    }
+}
+
+struct OpaqueParameter {
+    let name: String
+    let constraint: TypeSyntax
+}
+
+private final class OpaqueParameterRewriter: SyntaxRewriter {
+    var parameters: [OpaqueParameter] = []
+
+    override func visit(_ node: SomeOrAnyTypeSyntax) -> TypeSyntax {
+        guard node.someOrAnySpecifier.tokenKind == .keyword(.some) else { return super.visit(node) }
+        let name = "__opaque\(parameters.count)"
+        parameters.append(OpaqueParameter(name: name, constraint: node.constraint))
+        return TypeSyntax(IdentifierTypeSyntax(name: .identifier(name)))
     }
 }

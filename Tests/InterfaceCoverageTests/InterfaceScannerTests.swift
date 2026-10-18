@@ -147,6 +147,28 @@ struct InterfaceScannerTests {
         #expect(result.missing.map(\.name) == ["Other"])
     }
 
+    @Test func opaqueParametersMatchTrailingGenericParameters() throws {
+        let result = try compare(
+            """
+            public protocol View {}
+            public func apply<T, V>(content: V, value: T, other: T) -> some SwiftUI.View where V: SwiftUI.View
+            public func pair<A, B>(_ a: A, _ b: B) where A: SwiftUI.View, A: Swift.Sendable, B: SwiftUI.View
+            public struct Box { public init<V>(_ content: V) where V: SwiftUI.View }
+            public func swapped<V, T>(content: V, value: T) where V: SwiftUI.View
+            """,
+            """
+            public protocol View {}
+            public func apply<T>(content: some OpenSwiftUI.View, value: T, other: T) -> some OpenSwiftUI.View
+            public func pair(_ a: some OpenSwiftUI.View & Swift.Sendable, _ b: some OpenSwiftUI.View)
+            public struct Box { public init(_ content: some OpenSwiftUI.View) }
+            public func swapped<T>(content: some OpenSwiftUI.View, value: T)
+            """
+        )
+        #expect(result.summary.reference == 6)
+        // An opaque parameter follows the explicit generic parameters.
+        #expect(result.missing.map(\.name) == ["swapped"])
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """

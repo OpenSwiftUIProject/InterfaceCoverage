@@ -82,9 +82,7 @@ final class DeclarationCollector {
         if let node = declaration.as(FunctionDeclSyntax.self) {
             let name = normalization.text(node.name)
             guard visible(node.modifiers, node.attributes, name: name, context: context) else { return }
-            var scope = context
-            let generics = scope.add(node.genericParameterClause)
-            scope.requirements += normalization.requirements(node.genericWhereClause, parameters: node.genericParameterClause, generics: scope.generics)
+            let (scope, generics, clause) = genericScope(context, node.genericParameterClause, node.genericWhereClause, node.signature.parameterClause)
             let isOperator: Bool
             switch node.name.tokenKind {
             case .binaryOperator, .prefixOperator, .postfixOperator:
@@ -93,15 +91,13 @@ final class DeclarationCollector {
                 isOperator = false
             }
             add(.function, name: name,
-                signature: "\(modifiers(node.modifiers))func \(name)\(generics)\(function(node.signature, context: scope, implicitUnlabeled: isOperator))",
+                signature: "\(modifiers(node.modifiers))func \(name)\(generics)\(function(node.signature.with(\.parameterClause, clause), context: scope, implicitUnlabeled: isOperator))",
                 context: scope, node: node)
         } else if let node = declaration.as(InitializerDeclSyntax.self) {
             guard visible(node.modifiers, node.attributes, name: "init", context: context) else { return }
-            var scope = context
-            let generics = scope.add(node.genericParameterClause)
-            scope.requirements += normalization.requirements(node.genericWhereClause, parameters: node.genericParameterClause, generics: scope.generics)
+            let (scope, generics, clause) = genericScope(context, node.genericParameterClause, node.genericWhereClause, node.signature.parameterClause)
             add(.initializer, name: "init",
-                signature: "init\(node.optionalMark?.text ?? "")\(generics)\(function(node.signature, context: scope, hasReturn: false))",
+                signature: "init\(node.optionalMark?.text ?? "")\(generics)\(function(node.signature.with(\.parameterClause, clause), context: scope, hasReturn: false))",
                 context: scope, node: node)
         } else if let node = declaration.as(VariableDeclSyntax.self) {
             for binding in node.bindings {
@@ -120,12 +116,10 @@ final class DeclarationCollector {
             }
         } else if let node = declaration.as(SubscriptDeclSyntax.self) {
             guard visible(node.modifiers, node.attributes, name: "subscript", context: context) else { return }
-            var scope = context
-            let generics = scope.add(node.genericParameterClause)
-            scope.requirements += normalization.requirements(node.genericWhereClause, parameters: node.genericParameterClause, generics: scope.generics)
+            let (scope, generics, clause) = genericScope(context, node.genericParameterClause, node.genericWhereClause, node.parameterClause)
             let type = normalization.type(node.returnClause.type, generics: scope.generics)
             add(.subscript, name: "subscript",
-                signature: "\(modifiers(node.modifiers))subscript\(generics)\(parameters(node.parameterClause, context: scope, implicitUnlabeled: true)) -> \(type) \(accessors(node.accessorBlock, modifiers: node.modifiers, context: scope))",
+                signature: "\(modifiers(node.modifiers))subscript\(generics)\(parameters(clause, context: scope, implicitUnlabeled: true)) -> \(type) \(accessors(node.accessorBlock, modifiers: node.modifiers, context: scope))",
                 context: scope, node: node)
         } else if let node = declaration.as(TypeAliasDeclSyntax.self) {
             let name = normalization.text(node.name)
@@ -180,6 +174,20 @@ final class DeclarationCollector {
         } else {
             throw failure("Unsupported interface declaration: \(declaration.kind)", node: declaration)
         }
+    }
+
+    private func genericScope(
+        _ context: DeclarationContext, _ parameters: GenericParameterClauseSyntax?,
+        _ requirements: GenericWhereClauseSyntax?, _ clause: FunctionParameterClauseSyntax
+    ) -> (DeclarationContext, String, FunctionParameterClauseSyntax) {
+        var scope = context
+        let (clause, opaque) = normalization.opaqueParameters(clause)
+        let generics = scope.add(parameters, opaque: opaque)
+        scope.requirements += normalization.requirements(requirements, parameters: parameters, generics: scope.generics)
+        for parameter in opaque {
+            scope.requirements += normalization.conformances(scope.generics[parameter.name] ?? parameter.name, parameter.constraint, generics: scope.generics)
+        }
+        return (scope, generics, clause)
     }
 
     private func function(
