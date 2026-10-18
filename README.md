@@ -265,6 +265,18 @@ links absolute.
 https://img.shields.io/endpoint?url=https://openswiftuiproject.github.io/InterfaceCoverage/badges/openswiftui-ios-ios-18-5-swiftui-swiftuicore-default.json
 ```
 
+To add a release summary to GitHub release notes, run
+[`Scripts/update_release_notes.py`](Scripts/update_release_notes.py). It writes
+a table between `<!-- interface-coverage:start -->` and
+`<!-- interface-coverage:end -->` markers, and replaces that table when it runs
+again. Use `--dry-run` to print the result without editing the release.
+
+```sh
+python3 Tools/InterfaceCoverage/Scripts/update_release_notes.py --version 0.23.1 \
+  --summary https://openswiftuiproject.github.io/InterfaceCoverage/summary/openswiftui/0.23.1.json \
+  --baseline "iOS 18.5" --baseline "macOS 15.5"
+```
+
 ## Comparison flags
 
 | Option | Effect |
