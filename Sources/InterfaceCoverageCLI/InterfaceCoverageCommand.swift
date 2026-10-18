@@ -70,6 +70,9 @@ struct CompareInterfaces: ParsableCommand {
     @Flag(help: "List missing declarations in the text report. JSON always includes them.")
     var showMissing = false
 
+    @Flag(help: "List missing declarations that have an extra declaration with the same kind, owner, and name. JSON always includes them.")
+    var showNearMisses = false
+
     mutating func validate() throws {
         guard !reference.isEmpty, !candidate.isEmpty else {
             throw ValidationError("Provide at least one --reference and one --candidate file.")
@@ -135,7 +138,8 @@ struct CompareInterfaces: ParsableCommand {
         case .json:
             let document = ReportDocument(
                 options: options, reference: references.map(InputDescription.init),
-                candidate: candidates.map(InputDescription.init), warnings: warnings, coverage: report
+                candidate: candidates.map(InputDescription.init), warnings: warnings, coverage: report,
+                nearMisses: report.nearMisses
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -154,7 +158,7 @@ struct CompareInterfaces: ParsableCommand {
         }
         var lines = [
             "Interface declaration coverage: \(report.summary.matched)/\(report.summary.reference) (\(percent(report.summary)))",
-            "Missing: \(report.summary.missing) | Extra: \(report.summary.extra)",
+            "Missing: \(report.summary.missing) | Extra: \(report.summary.extra) | Near misses: \(report.nearMisses.reduce(0) { $0 + $1.missing.count })",
             "Scope: supplied files; all conditional branches; declaration signatures.",
         ]
         if !ignoredNamespaces.isEmpty {
@@ -171,6 +175,14 @@ struct CompareInterfaces: ParsableCommand {
             for entry in report.missing {
                 let location = entry.locations.first.map { " [\($0.path):\($0.line)]" } ?? ""
                 lines.append("\(entry.owner): \(entry.signature)\(location)")
+            }
+        }
+        if showNearMisses {
+            lines.append("\nNear misses:")
+            for group in report.nearMisses {
+                lines.append("\(group.owner): \(group.kind.rawValue) \(group.name)")
+                lines += group.missing.map { "  - \($0.signature)" }
+                lines += group.extra.map { "  + \($0.signature)" }
             }
         }
         return lines.joined(separator: "\n") + "\n"
@@ -204,4 +216,5 @@ private struct ReportDocument: Encodable {
     let candidate: [InputDescription]
     let warnings: [String]
     let coverage: CoverageReport
+    let nearMisses: [NearMiss]
 }

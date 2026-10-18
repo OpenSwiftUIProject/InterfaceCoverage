@@ -122,8 +122,13 @@ namespace rule.
 ## Reports and options
 
 Text output includes totals and a table by declaration kind. Add `--show-missing`
-to list missing signatures and their source locations. JSON includes all matched,
-missing, and extra declarations with file paths and line numbers:
+to list missing signatures and their source locations. Add `--show-near-misses`
+to list missing declarations next to extra declarations with the same kind,
+owner, and name. A near miss usually shows a signature difference, such as a
+different type spelling or a missing default argument, not an absent API. Use
+it to find normalization gaps and real API differences. JSON includes all
+matched, missing, and extra declarations with file paths and line numbers, and
+a `nearMisses` list:
 
 ```sh
 interface-coverage \
@@ -147,7 +152,7 @@ names still follow the configured aliases and otherwise remain distinct.
 
 The `site` subcommand converts JSON reports into a static site. It includes a
 release coverage chart, project/target/module/profile filters, declaration
-search, counts by kind, input metadata, and an HTML table for embedding. Each
+search, a near-miss view, counts by kind, input metadata, and an HTML table for embedding. Each
 comparison group also has Markdown and SVG tables for README files.
 
 Create the comparison reports first. Then prepare a manifest based on
@@ -219,6 +224,7 @@ a site. It prepares the same output for local viewing and later CI publication.
 | `--include-spi` | Include declarations marked with `@_spi`. Supply private interfaces when needed. |
 | `--allow-target-mismatch` | Permit an approximate comparison across target platforms or environments. |
 | `--show-missing` | Include missing declarations in text output. |
+| `--show-near-misses` | Include missing and extra declarations with the same kind, owner, and name in text output. |
 | `--format text\|json` | Select the report format. |
 | `--output PATH` | Write atomically to a report file instead of standard output. |
 

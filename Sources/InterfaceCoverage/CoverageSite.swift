@@ -56,6 +56,7 @@ public enum CoverageSite {
                 id: id, group: group, project: item.project, version: item.version,
                 baseline: item.baseline, target: item.target, scope: item.scope, profile: item.profile,
                 notes: item.notes ?? [], metadata: item.metadata ?? [:], summary: document.coverage.summary,
+                nearMisses: document.coverage.nearMisses.reduce(0) { $0 + $1.missing.count },
                 warnings: document.warnings, report: "reports/\(id).json"
             ))
         }
@@ -223,6 +224,7 @@ private struct SiteRecord: Encodable {
     let notes: [String]
     let metadata: [String: String]
     let summary: CoverageCount
+    let nearMisses: Int
     let warnings: [String]
     let report: String
 }

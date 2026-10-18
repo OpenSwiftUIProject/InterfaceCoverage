@@ -22,6 +22,9 @@
   let current = null;
   let documentData = null;
   let request = 0;
+  const statuses = ["missing", "near", "matched", "extra"];
+  const statusLabels = {missing: "Missing", near: "Near misses", matched: "Matched", extra: "Extra"};
+  const nameKey = entry => `${entry.kind}|${entry.owner}|${entry.name}`;
 
   function element(tag, text, className) {
     const node = document.createElement(tag);
@@ -330,8 +333,8 @@
     }));
     $("notices").replaceChildren(...record.notes.map(note => element("p", note, "notice")),
       ...record.warnings.map(note => element("p", note, "notice warning")));
-    $("statuses").replaceChildren(...["missing", "matched", "extra"].map(status => button(
-      `${status[0].toUpperCase()}${status.slice(1)} ${number(record.summary[status])}`,
+    $("statuses").replaceChildren(...statuses.map(status => button(
+      `${statusLabels[status]} ${number(status === "near" ? record.nearMisses ?? 0 : record.summary[status])}`,
       status === state.status, () => {
         state.status = status;
         state.page = 0;
@@ -390,7 +393,7 @@
   function renderEntries() {
     if (!documentData) return;
     const text = state.search.toLowerCase().trim();
-    const entries = documentData.coverage[state.status].filter(entry =>
+    const entries = statusEntries().filter(entry =>
       (!state.kind || entry.kind === state.kind) &&
       (!text || `${entry.owner} ${entry.name} ${entry.signature}`.toLowerCase().includes(text))
     );
@@ -403,6 +406,7 @@
       kind.append(element("code", entry.kind));
       const declaration = element("td");
       declaration.append(element("code", entry.owner, "owner"), element("code", entry.signature));
+      for (const candidate of entry.candidates || []) declaration.append(element("code", candidate.signature, "candidate"));
       declaration.append(element("span", entry.locations.map(item => `${item.path}:${item.line}`).join(" · "), "locations"));
       row.append(kind, declaration);
       return row;
@@ -419,6 +423,17 @@
       : "0 declarations";
     $("previous").disabled = state.page === 0;
     $("next").disabled = start + pageSize >= entries.length;
+  }
+
+  // A near miss is a missing declaration with an extra declaration of the same
+  // kind, owner, and name. It usually shows a signature difference.
+  function statusEntries() {
+    const coverage = documentData.coverage;
+    if (state.status !== "near") return coverage[state.status];
+    const extras = new Map();
+    for (const entry of coverage.extra) extras.set(nameKey(entry), [...(extras.get(nameKey(entry)) || []), entry]);
+    return coverage.missing.filter(entry => extras.has(nameKey(entry)))
+      .map(entry => ({...entry, candidates: extras.get(nameKey(entry))}));
   }
 
   function renderMetadata() {
@@ -451,7 +466,7 @@
       render();
     });
   }
-  if (!["missing", "matched", "extra"].includes(state.status)) state.status = "missing";
+  if (!statuses.includes(state.status)) state.status = "missing";
   $("search").value = state.search;
   $("search").addEventListener("input", () => {
     state.search = $("search").value;

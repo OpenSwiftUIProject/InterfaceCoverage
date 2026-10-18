@@ -121,6 +121,7 @@ tbody th { font-weight: 500; }
 .declarations th:first-child { width: 148px; }
 .declarations code { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .declarations .owner { display: block; color: var(--muted); margin-bottom: 5px; font-size: 11px; }
+.declarations .candidate { display: block; margin-top: 5px; padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); }
 .declarations .locations { display: block; font-size: 11px; color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
 .pagination { display: flex; align-items: center; gap: 8px; margin: 12px 0 26px; }
 .pagination span { margin-right: auto; }

@@ -75,6 +75,33 @@ struct InterfaceScannerTests {
         #expect(result.summary.extra == 0)
     }
 
+    @Test func nearMissesPairMissingAndExtraDeclarationsByName() throws {
+        let result = try compare(
+            """
+            public struct Value {
+              public func read(_ x: Swift.Int) -> Swift.Int
+              public func write(_ x: Swift.Int)
+              public func keep()
+            }
+            """,
+            """
+            public struct Value {
+              public func read(_ x: Swift.Int) -> Swift.String
+              public func read(_ x: Swift.Int) -> Swift.Bool
+              public func store(_ x: Swift.Int)
+              public func keep()
+            }
+            """
+        )
+        #expect(result.summary.missing == 2)
+        #expect(result.summary.extra == 3)
+        let nearMisses = result.nearMisses
+        #expect(nearMisses.count == 1)
+        #expect(nearMisses.first?.name == "read")
+        #expect(nearMisses.first?.missing.count == 1)
+        #expect(nearMisses.first?.extra.count == 2)
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """

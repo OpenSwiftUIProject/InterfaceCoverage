@@ -151,6 +151,28 @@ public struct CoverageReport: Sendable, Codable {
     }
 }
 
+/// Missing and extra declarations that share a kind, owner, and name.
+/// They usually show a signature difference, not an absent API.
+public struct NearMiss: Sendable, Codable {
+    public let kind: APIKind
+    public let owner: String
+    public let name: String
+    public let missing: [APIEntry]
+    public let extra: [APIEntry]
+}
+
+extension CoverageReport {
+    public var nearMisses: [NearMiss] {
+        func key(_ entry: APIEntry) -> String { "\(entry.kind.rawValue)|\(entry.owner)|\(entry.name)" }
+        let extras = Dictionary(grouping: extra, by: key)
+        let groups = Dictionary(grouping: missing, by: key)
+        return groups.keys.sorted().compactMap { name in
+            guard let missing = groups[name], let extra = extras[name], let first = missing.first else { return nil }
+            return NearMiss(kind: first.kind, owner: first.owner, name: first.name, missing: missing, extra: extra)
+        }
+    }
+}
+
 public struct CoverageError: Error, LocalizedError, Sendable {
     public let message: String
     public init(_ message: String) { self.message = message }

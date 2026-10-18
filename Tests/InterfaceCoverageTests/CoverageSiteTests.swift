@@ -129,6 +129,28 @@ struct CoverageSiteTests {
         #expect(locations.first?["path"] as? String == "reference/0/Example.swiftinterface")
     }
 
+    @Test func catalogCountsNearMisses() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let row = try fixture(root)
+        let path = root.appendingPathComponent("report.json")
+        var document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+        var coverage = try #require(document["coverage"] as? [String: Any])
+        var extra = try #require((coverage["missing"] as? [[String: Any]])?.first)
+        extra["signature"] = "struct Value<T0>"
+        extra["locations"] = [["path": "/private/build/Candidate.swiftinterface", "line": 2]]
+        let counts = ["reference": 1, "matched": 0, "missing": 1, "extra": 1]
+        coverage["summary"] = counts
+        coverage["byKind"] = [["kind": "struct", "count": counts]]
+        coverage["extra"] = [extra]
+        document["coverage"] = coverage
+        try JSONSerialization.data(withJSONObject: document).write(to: path)
+        let output = try generate(root, rows: [row])
+        let catalog = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: output.appendingPathComponent("catalog.json"))) as? [String: Any])
+        let reports = try #require(catalog["reports"] as? [[String: Any]])
+        #expect(reports.first?["nearMisses"] as? Int == 1)
+    }
+
     @Test func rejectsInconsistentCounts() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
