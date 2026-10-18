@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 
 TOOL = pathlib.Path(__file__).resolve().parent.parent
 MODULES = ['SwiftUI', 'SwiftUICore']
-SCOPES = [('SwiftUI', ['SwiftUI']), ('SwiftUICore', ['SwiftUICore']), ('SwiftUI + SwiftUICore', MODULES)]
+# The combined scope comes first, so summaries and the site show it first.
+SCOPES = [('SwiftUI + SwiftUICore', MODULES), ('SwiftUI', ['SwiftUI']), ('SwiftUICore', ['SwiftUICore'])]
 TARGETS = {
     'iOS': dict(platform='ios', variant='simulator', sdk='iPhoneSimulator',
                 candidate='arm64-apple-ios-simulator', reference='arm64-apple-ios-simulator',
@@ -42,14 +43,35 @@ def gh(*arguments):
     return subprocess.check_output(['gh', *arguments], text=True)
 
 
+def release_metadata(repository, version, directory, refresh=False):
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / 'release.json'
+    if refresh or not path.exists():
+        path.write_text(gh('release', 'view', version, '--repo', repository,
+                           '--json', 'url,publishedAt,tagName,assets') + '\n')
+    return json.loads(path.read_text())
+
+
+def published_releases(repository, work):
+    """Returns the published releases that include both XCFrameworks, oldest first."""
+    releases = json.loads(gh('release', 'list', '--repo', repository, '--limit', '1000',
+                             '--exclude-drafts', '--json', 'tagName,publishedAt'))
+    result = []
+    for release in sorted(releases, key=lambda item: item['publishedAt']):
+        version = release['tagName']
+        wanted = [f'Open{module}.xcframework.zip' for module in MODULES]
+        names = {asset['name'] for asset in release_metadata(repository, version, work / 'releases' / version)['assets']}
+        if not all(name in names for name in wanted):
+            # Assets can be added after the metadata was cached.
+            names = {asset['name'] for asset in release_metadata(repository, version, work / 'releases' / version, refresh=True)['assets']}
+        if all(name in names for name in wanted):
+            result.append(version)
+    return result
+
+
 def fetch_release(repository, version, directory):
     """Downloads the release metadata and XCFrameworks once, then verifies them."""
-    directory.mkdir(parents=True, exist_ok=True)
-    release_path = directory / 'release.json'
-    if not release_path.exists():
-        release_path.write_text(gh('release', 'view', version, '--repo', repository,
-                                   '--json', 'url,publishedAt,tagName,assets') + '\n')
-    release = json.loads(release_path.read_text())
+    release = release_metadata(repository, version, directory)
     names = {asset['name'] for asset in release['assets']}
     wanted = [f'Open{module}.xcframework.zip' for module in MODULES]
     if 'release-manifest.json' in names:
@@ -118,13 +140,17 @@ def release_inputs(repository, version, target, work):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--release', action='append', required=True, help='Release tag. Repeat for more releases.')
+    releases = parser.add_mutually_exclusive_group(required=True)
+    releases.add_argument('--release', action='append', help='Release tag. Repeat for more releases.')
+    releases.add_argument('--all-releases', action='store_true',
+                          help='Use every published release that includes both XCFrameworks.')
     parser.add_argument('--xcode', action='append', required=True, type=pathlib.Path,
                         help='Xcode application that supplies the baseline SDK. Repeat for more baselines.')
     parser.add_argument('--target', action='append', choices=sorted(TARGETS), help='Target. The default is iOS and macOS.')
     parser.add_argument('--repository', default='OpenSwiftUIProject/OpenSwiftUI')
     parser.add_argument('--work', type=pathlib.Path, default=TOOL / '.preview', help='Directory for downloads, inputs, and reports.')
     parser.add_argument('--site', type=pathlib.Path, help='Site output directory. The default is WORK/site.')
+    parser.add_argument('--site-url', help='Published site address for absolute links in summaries.')
     parser.add_argument('--include-manifest', type=pathlib.Path,
                         help='Existing site manifest whose reports for other projects are kept.')
     parser.add_argument('--tool', type=pathlib.Path, default=TOOL / '.build/release/interface-coverage')
@@ -135,6 +161,9 @@ def main():
     if subprocess.check_output(['git', '-C', str(TOOL), 'status', '--porcelain', '--', 'Sources', 'Package.swift'], text=True):
         tool_commit += '-dirty'
     collected = datetime.now(timezone.utc).isoformat()
+    versions = published_releases(arguments.repository, work) if arguments.all_releases else arguments.release
+    # A report is reused when the tool binary and the input interfaces are unchanged.
+    tool_digest = sha256(arguments.tool)
 
     records = []
     if arguments.include_manifest:
@@ -145,7 +174,7 @@ def main():
 
     for target in arguments.target or ['iOS', 'macOS']:
         settings = TARGETS[target]
-        candidates = {version: release_inputs(arguments.repository, version, target, work) for version in arguments.release}
+        candidates = {version: release_inputs(arguments.repository, version, target, work) for version in versions}
         for xcode in arguments.xcode:
             sdk = xcode / f"Contents/Developer/Platforms/{settings['sdk']}.platform/Developer/SDKs/{settings['sdk']}.sdk"
             sdk_settings_data = (sdk / 'SDKSettings.plist').read_bytes()
@@ -161,7 +190,7 @@ def main():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(source.read_bytes())
                 references[module] = path
-            for version in arguments.release:
+            for version in versions:
                 candidate_paths, release_metadata = candidates[version]
                 for scope, modules in SCOPES:
                     destination = work / 'reports' / 'openswiftui' / version / target / f"{sdk_settings['CanonicalName']}-{'-'.join(modules)}.json"
@@ -170,7 +199,12 @@ def main():
                     command += [item for module in modules for item in ('--reference', str(references[module]))]
                     command += [item for module in modules for item in ('--candidate', str(candidate_paths[module]))]
                     command += ['--format', 'json', '--output', str(destination)]
-                    subprocess.run(command, check=True)
+                    key = json.dumps(dict(tool=tool_digest, command=command[1:], inputs=[
+                        sha256(references[module]) for module in modules] + [sha256(candidate_paths[module]) for module in modules]))
+                    key_path = destination.with_suffix('.key')
+                    if not destination.exists() or not key_path.exists() or key_path.read_text() != key:
+                        subprocess.run(command, check=True)
+                        key_path.write_text(key)
                     summary = json.loads(destination.read_text())['coverage']['summary']
                     print(version, baseline, scope, f"{summary['matched']}/{summary['reference']}", flush=True)
                     records.append(dict(
@@ -179,7 +213,10 @@ def main():
                         metadata=dict(release_metadata, **sdk_metadata, toolCommit=tool_commit, collectedAt=collected)))
 
     manifest = work / 'manifest.json'
-    manifest.write_text(json.dumps(dict(schemaVersion=1, title='InterfaceCoverage', reports=records), indent=2) + '\n')
+    specification = dict(schemaVersion=1, title='InterfaceCoverage', reports=records)
+    if arguments.site_url:
+        specification['siteURL'] = arguments.site_url
+    manifest.write_text(json.dumps(specification, indent=2) + '\n')
     subprocess.run([str(arguments.tool), 'site', '--manifest', str(manifest), '--output', str(site)], check=True)
     print(f'Generated {len(records)} comparisons in {site}.', flush=True)
 

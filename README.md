@@ -206,8 +206,11 @@ python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py \
   --xcode /Applications/Xcode-16.4.0.app --xcode /Applications/Xcode-26.6.0.app
 ```
 
-Add `--include-manifest` with an earlier manifest to keep its reports for other
-projects in the same site.
+Use `--all-releases` in place of `--release` to compare every published release
+that includes both XCFrameworks. A report is generated again only when the tool
+binary or an input interface changes. Pass `--site-url` to make summary links
+absolute. Add `--include-manifest` with an earlier manifest to keep its reports
+for other projects in the same site.
 
 Labels come from the manifest; the generator does not infer a release from an interface.
 Record the actual candidate commit, build SDK, compiler, build flags, dependency
