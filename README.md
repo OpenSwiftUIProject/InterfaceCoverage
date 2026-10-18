@@ -140,8 +140,8 @@ interface-coverage \
 JSON includes the input module names and targets, scan options, warnings, and a
 versioned `coverage` object. `options.rulesVersion` identifies the built-in
 matching rules. It increases when a tool change can produce different signatures
-for the same input. Reports without this field use version 1. Results and source locations are sorted for stable
-diffs. If the reference has no declarations, text coverage is `n/a` and the JSON
+for the same input. Reports without this field use version 1. Results and
+source locations are sorted for stable diffs. If the reference has no declarations, text coverage is `n/a` and the JSON
 count has no `percent` value. Extra declarations never increase coverage.
 New reports also record each input's SHA-256 and compiler header.
 Module selectors such as `Module::Type` use the same signature path as
@@ -191,8 +191,8 @@ keep their manifest order. The chart and the Markdown/SVG tables show the
 highest patch version of each minor version, for example 0.23.1 and not 0.23.0.
 A selected earlier patch version, for example from a release notes link, is
 shown too, and changes are measured from the previous shown version. Summaries
-and reports include every version. Select a bar to open its report, or select a legend
-item to isolate a baseline. About four versions fill the visible width, the
+and reports include every version. Select a bar to open its report, or select a
+legend item to isolate a baseline. About four versions fill the visible width, the
 percentage axis stays in place while the chart scrolls, and wide bars show their
 values. When one baseline is shown, each version shows the change in matched
 APIs from the previous version, such as `+177 (+4.1%)`. The readout shows the
@@ -232,8 +232,8 @@ equal inputs share entries on every machine. Other tool changes do not
 invalidate entries. Increase the rules version when a change, including a
 SwiftSyntax update, can produce different results. `RulesVersionTests` keeps a
 snapshot of normalized signatures and fails when they change, as a reminder to
-increase the version. Increase `CACHE_VERSION`
-when the cache entry layout or the comparison commands change. Release
+increase the version. Increase `CACHE_VERSION` when the cache entry layout or
+the comparison commands change. Release
 assets are downloaded with `gh` only when an entry must be generated.
 
 With `--oci-repository`, missing entries are pulled from an OCI registry with
@@ -319,8 +319,9 @@ To add a release summary to GitHub release notes, run
 [`Scripts/update_release_notes.py`](Scripts/update_release_notes.py). It writes
 an `## Interface Coverage` section between `<!-- interface-coverage:start -->`
 and `<!-- interface-coverage:end -->` markers, with a link to the version's full
-report and to the APIs added since the previous version. When it runs again, it replaces that section in place. Without the
-markers, it adds the section at the end of the notes. Use `--dry-run` to print
+report and to the APIs added since the previous version. When it runs again, it
+replaces that section in place. Without the markers, it adds the section at the
+end of the notes. Use `--dry-run` to print
 the result without editing the release.
 
 ```sh
@@ -356,6 +357,25 @@ All jobs use GitHub-hosted runners.
 
 The published site and the cache entries include the reference declarations of
 each SDK baseline, because the declaration lists show matched and missing APIs.
+
+### Baselines
+
+Each baseline Xcode is one `compare` matrix entry in `pages.yml`, with the
+GitHub-hosted runner label whose image includes it. The job reads
+`/Applications/Xcode_<version>.app`; the
+[runner images](https://github.com/actions/runner-images#available-images) list
+the Xcode versions of each image.
+
+- **Add a baseline:** add a matrix entry. Existing baselines restore their cache
+  entries, and the new baseline is compared once for every release.
+- **Replace or remove a baseline:** change or remove its entry. The next deploy
+  no longer shows that baseline, and its badges and summary results disappear.
+  When the iOS 18.5 and macOS 15.5 baselines change, also update the
+  `--baseline` options of the `release-notes` job and the badge file name in the
+  OpenSwiftUI README, which contains the baseline slug.
+- **Preview images:** Xcode 27.0 runs on the `xcode-27` preview image. When a
+  generally available image includes it, change the runner label, and remove
+  `xcode-27` from `.github/actionlint.yaml` when actionlint knows the label.
 
 ## Comparison flags
 
