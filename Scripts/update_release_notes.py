@@ -2,8 +2,9 @@
 """Add the interface coverage of a release to its release notes.
 
 The script reads `summary/<project>/<version>.json` from the coverage site and
-writes a Markdown table between two markers in the release notes. Running it
-again replaces the table, so it is safe to repeat. It uses `gh` to read and edit
+writes an `## Interface Coverage` section between two markers. Running it again
+replaces the section in place, so it is safe to repeat. Without the markers, the
+section is added at the end of the release notes. It uses `gh` to read and edit
 the release, which needs a token with write access to the repository contents.
 """
 
@@ -12,6 +13,7 @@ import json
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 START = '<!-- interface-coverage:start -->'
@@ -42,8 +44,14 @@ def section(summary, baselines, profile):
     rows = list(dict.fromkeys(item['baseline'] for item in results))
     if baselines:
         rows = [baseline for baseline in baselines if baseline in rows]
-    lines = [START, '### Interface coverage', '',
-             f"{summary['note']} Coverage is not a measure of completed behavior.", '',
+    # Summary links are absolute when the site was generated with a site URL.
+    site = results[0]['url'].split('index.html?', 1)[0]
+    if not site.startswith(('http://', 'https://')):
+        raise SystemExit('The summary has relative links. Generate the site with a site URL.')
+    query = urllib.parse.urlencode(dict(project=summary['project'], version=summary['version']),
+                                   quote_via=urllib.parse.quote)
+    lines = [START, '## Interface Coverage', '',
+             f"Full report: [{summary['project']} {summary['version']}]({site}index.html?{query})", '',
              '| Baseline | ' + ' | '.join(scopes) + ' |', '| --- | ' + ' | '.join('---:' for _ in scopes) + ' |']
     for baseline in rows:
         cells = []
@@ -56,6 +64,14 @@ def section(summary, baselines, profile):
                 cells.append(f"[{value}]({item['url']})")
         lines.append(f'| {baseline} | ' + ' | '.join(cells) + ' |')
     return '\n'.join(lines + [END])
+
+
+def replacing_section(body, block):
+    """Replaces the section between the markers, or adds it at the end of the notes."""
+    if START in body and END in body:
+        before, rest = body.split(START, 1)
+        return before + block + rest.split(END, 1)[1]
+    return f'{body}\n\n{block}' if body else block
 
 
 def main():
@@ -75,11 +91,7 @@ def main():
     block = section(summary, arguments.baseline, arguments.profile)
     body = subprocess.check_output(['gh', 'release', 'view', arguments.version, '--repo', arguments.repository,
                                     '--json', 'body', '--jq', '.body'], text=True).rstrip('\n')
-    if START in body and END in body:
-        before, rest = body.split(START, 1)
-        body = before + block + rest.split(END, 1)[1]
-    else:
-        body = f'{body}\n\n{block}' if body else block
+    body = replacing_section(body, block)
     if arguments.dry_run:
         print(body)
         return

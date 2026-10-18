@@ -285,9 +285,11 @@ https://img.shields.io/endpoint?url=https://openswiftuiproject.github.io/Interfa
 
 To add a release summary to GitHub release notes, run
 [`Scripts/update_release_notes.py`](Scripts/update_release_notes.py). It writes
-a table between `<!-- interface-coverage:start -->` and
-`<!-- interface-coverage:end -->` markers, and replaces that table when it runs
-again. Use `--dry-run` to print the result without editing the release.
+an `## Interface Coverage` section between `<!-- interface-coverage:start -->`
+and `<!-- interface-coverage:end -->` markers, with a link to the version's full
+report. When it runs again, it replaces that section in place. Without the
+markers, it adds the section at the end of the notes. Use `--dry-run` to print
+the result without editing the release.
 
 ```sh
 python3 Tools/InterfaceCoverage/Scripts/update_release_notes.py --version 0.23.1 \
