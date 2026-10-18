@@ -53,6 +53,9 @@ struct CoverageSiteTests {
         #expect(!report.contains("/private/build"))
         #expect(report.contains("reference/0/Example.swiftinterface"))
         #expect(FileManager.default.fileExists(atPath: output.appendingPathComponent("embed.html").path))
+        // Asset URLs change with their content, so browsers do not keep old assets.
+        #expect(html.range(of: #"assets/site\.js\?v=[0-9a-f]{12}""#, options: .regularExpression) != nil)
+        #expect(html.range(of: #"assets/site\.css\?v=[0-9a-f]{12}""#, options: .regularExpression) != nil)
         let tables = try FileManager.default.contentsOfDirectory(atPath: output.appendingPathComponent("tables").path)
         #expect(tables.contains { $0.hasSuffix(".md") })
         #expect(tables.contains { $0.hasSuffix(".svg") })

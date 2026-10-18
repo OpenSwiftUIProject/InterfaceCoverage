@@ -107,14 +107,17 @@ public enum CoverageSite {
             .replacingOccurrences(of: "<", with: "\\u003C")
             .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
             .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+        let script = try asset("site.js"), style = try asset("site.css")
         let template = try asset("index.html")
+            .replacingOccurrences(of: "assets/site.js", with: "assets/site.js?v=\(digest(Data(script.utf8)).prefix(12))")
+            .replacingOccurrences(of: "assets/site.css", with: "assets/site.css?v=\(digest(Data(style.utf8)).prefix(12))")
         let page = template.replacingOccurrences(of: "__TITLE__", with: escape(catalog.title))
         for (path, mode) in [("index.html", "false"), ("embed.html", "true")] {
             files[path] = Data(page.replacingOccurrences(of: "__EMBED__", with: mode)
                 .replacingOccurrences(of: "__CATALOG__", with: embedded).utf8)
         }
-        files["assets/site.css"] = Data(try asset("site.css").utf8)
-        files["assets/site.js"] = Data(try asset("site.js").utf8)
+        files["assets/site.css"] = Data(style.utf8)
+        files["assets/site.js"] = Data(script.utf8)
         for group in ordered(records.map(\.group)) {
             let rows = records.filter { $0.group == group }
             files["tables/\(group).md"] = Data(markdown(rows).utf8)
