@@ -40,10 +40,10 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .build
           key: tool-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**') }}
@@ -53,7 +53,7 @@ jobs:
       # The site command reads its assets from the resource bundle next to the binary.
       - name: Package the tool
         run: tar -czf "$RUNNER_TEMP/tool.tar.gz" -C .build/release interface-coverage InterfaceCoverage_InterfaceCoverage.bundle
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tool
           path: ${{ runner.temp }}/tool.tar.gz
@@ -78,10 +78,10 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: tool
           path: ${{ runner.temp }}
@@ -89,7 +89,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tool"
           tar -xzf "$RUNNER_TEMP/tool.tar.gz" -C "$RUNNER_TEMP/tool"
-      - uses: oras-project/setup-oras@v1
+      - uses: oras-project/setup-oras@v2
       - name: Log in to GitHub Container Registry
         run: echo "${{ github.token }}" | oras login ghcr.io --username "${{ github.actor }}" --password-stdin
       - name: Compare releases
@@ -100,7 +100,7 @@ jobs:
           python3 Scripts/collect_openswiftui_releases.py collect --all-releases --xcode "$XCODE" \
             --work "$RUNNER_TEMP/work" --tool "$RUNNER_TEMP/tool/interface-coverage" \
             --oci-repository "$OCI_REPOSITORY" --publish-oci-cache --no-site
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: reports-xcode-${{ matrix.xcode }}
           path: |
@@ -113,10 +113,10 @@ jobs:
     needs: compare
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: tool
           path: ${{ runner.temp }}
@@ -124,7 +124,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tool"
           tar -xzf "$RUNNER_TEMP/tool.tar.gz" -C "$RUNNER_TEMP/tool"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: reports-*
           path: ${{ runner.temp }}/reports
@@ -135,7 +135,7 @@ jobs:
           python3 Scripts/collect_openswiftui_releases.py assemble "${inputs[@]}" \
             --work "$RUNNER_TEMP/work" --site "$RUNNER_TEMP/site" --site-url "$SITE_URL" \
             --tool "$RUNNER_TEMP/tool/interface-coverage"
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/site
 
@@ -151,7 +151,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   release-notes:
     name: Add coverage to the release notes
@@ -159,7 +159,7 @@ jobs:
     if: github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.release != '')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Update the OpenSwiftUI release notes
