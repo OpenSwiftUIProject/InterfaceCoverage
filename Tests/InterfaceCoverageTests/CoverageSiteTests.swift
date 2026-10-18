@@ -151,6 +151,20 @@ struct CoverageSiteTests {
         #expect(reports.first?["nearMisses"] as? Int == 1)
     }
 
+    @Test func regenerationRemovesUnreferencedFiles() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var row = try fixture(root)
+        let output = try generate(root, rows: [row])
+        row["version"] = "2.0"
+        row["project"] = "Other"
+        _ = try generate(root, rows: [row])
+        for directory in ["reports", "tables"] {
+            let files = try FileManager.default.contentsOfDirectory(atPath: output.appendingPathComponent(directory).path)
+            #expect(files.count == (directory == "reports" ? 1 : 2), "\(directory): \(files)")
+        }
+    }
+
     @Test func rejectsInconsistentCounts() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

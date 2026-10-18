@@ -88,6 +88,14 @@ public enum CoverageSite {
             try data.write(to: destination, options: .atomic)
         }
         try "1\n".write(to: marker, atomically: true, encoding: .utf8)
+        // Report and table names are content hashes. The catalog no longer refers
+        // to files from earlier runs, so remove them.
+        for directory in ["reports", "tables"] {
+            let url = output.appendingPathComponent(directory)
+            for name in (try? manager.contentsOfDirectory(atPath: url.path)) ?? [] where files["\(directory)/\(name)"] == nil {
+                try manager.removeItem(at: url.appendingPathComponent(name))
+            }
+        }
     }
 
     private static func asset(_ name: String) throws -> String {

@@ -202,8 +202,9 @@ module paths in published reports. Interface hashes and compiler information are
 preserved. Review user-supplied notes and metadata before publication.
 
 The output directory must be empty or contain the generator's ownership marker.
-Regeneration replaces the catalog and site assets and keeps existing report files.
-It does not remove historical files or accept input reports inside its output.
+Regeneration replaces the catalog and site assets. Report and table files are
+named by content hash, so it removes the files that the new catalog does not
+use. It does not accept input reports inside its output.
 
 Select **Embed table** to copy an iframe for the current filters or download the
 group's complete Markdown/SVG table. Query parameters retain project, target,
