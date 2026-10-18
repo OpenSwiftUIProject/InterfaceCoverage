@@ -272,6 +272,9 @@ versions can differ because an interface can declare APIs newer than that target
   `lhs`/`rhs` or `a`/`b`, are ignored for all operators, including `static ==`.
   Ordinary function labels still distinguish overloads. Namespace containers
   are normalized only when selected with `--ignore-namespace`.
+- Write normalized signatures with standard Swift spacing, such as
+  `func map<T1>(_: (T0) -> T1) -> SwiftUI.Box<T1>`. Generic parameters are
+  numbered from the outermost scope.
 - Preserve whether a default argument exists, but ignore its expression.
   Ignore function/accessor bodies, enum raw values, documentation, declaration
   attributes other than SPI/availability filters and macro roles, and modifiers

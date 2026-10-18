@@ -169,6 +169,26 @@ struct InterfaceScannerTests {
         #expect(result.missing.map(\.name) == ["swapped"])
     }
 
+    @Test func signaturesUseSwiftSpacing() throws {
+        let inventory = try InterfaceScanner().scan([input(
+            """
+            public struct Box<Value> {
+              public func map<T>(_ transform: @escaping @Sendable (Value) throws -> T?, values: [Swift.String : [T]] = [:], rest: T...) async rethrows -> SwiftUI.Box<(T, Value)>.Type where T: Swift.Hashable & Swift.Sendable, T == Value.Element
+              public typealias Body = @_opaqueReturnTypeOf("$s7SwiftUI3BoxV4bodyQrvp", 0) __<Value>
+              public var handler: () -> Swift.Void { get set }
+            }
+            infix operator <>: AdditionPrecedence
+            """
+        )])
+        let signatures = Set(inventory.entries.map(\.signature))
+        #expect(signatures.contains(
+            "func map<T1>(_: @escaping @Sendable (T0) throws -> T1?, values: [String: [T1]] = default, rest: T1...) async rethrows -> SwiftUI.Box<(T1, T0)>.Type where T0.Element == T1, T1: Hashable, T1: Sendable"
+        ))
+        #expect(signatures.contains("typealias Body = @_opaqueReturnTypeOf(_, 0) __<T0>"))
+        #expect(signatures.contains("var handler: () -> Void { get set }"))
+        #expect(signatures.contains("infix operator <>: AdditionPrecedence"))
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """
@@ -380,7 +400,7 @@ struct InterfaceScannerTests {
         let forward = try scanner.scan([extensionInput, typeInput])
         let backward = try scanner.scan([typeInput, extensionInput])
         #expect(forward.entries.map(\.id) == backward.entries.map(\.id))
-        #expect(forward.entries.first { $0.kind == .function }?.signature.contains("T0 : Hashable") == true)
+        #expect(forward.entries.first { $0.kind == .function }?.signature.contains("T0: Hashable") == true)
     }
 
     @Test func macroRolesAndDefaultArgumentPresenceAffectCoverage() throws {
