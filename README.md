@@ -190,6 +190,23 @@ select a legend item to isolate a baseline. Points support keyboard focus and
 activation. Missing reports leave gaps; empty references display `n/a` below the
 chart. The HTML embed and Markdown/SVG exports remain version tables.
 
+To collect OpenSwiftUI release reports, run
+[`Scripts/collect_openswiftui_releases.py`](Scripts/collect_openswiftui_releases.py).
+It downloads the OpenSwiftUI and OpenSwiftUICore XCFrameworks of each release
+with `gh`, verifies their published digests, compares the iOS simulator and macOS
+interfaces with the SDK of each Xcode, and generates the site. Downloads, inputs,
+and reports stay in the ignored `.preview` directory by default.
+
+```sh
+swift build --package-path Tools/InterfaceCoverage -c release
+python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py \
+  --release 0.23.1 --release 0.23.0 \
+  --xcode /Applications/Xcode-16.4.0.app --xcode /Applications/Xcode-26.6.0.app
+```
+
+Add `--include-manifest` with an earlier manifest to keep its reports for other
+projects in the same site.
+
 Labels come from the manifest; the generator does not infer a release from an interface.
 Record the actual candidate commit, build SDK, compiler, build flags, dependency
 versions, baseline SDK build, and tool revision when available. Use a distinct
@@ -218,8 +235,8 @@ group's complete Markdown/SVG table. Query parameters retain project, target,
 scope, profile, baseline, selected report, declaration status, kind, and search.
 The embedding page uses the same catalog and counts as the full report.
 
-This command does not collect releases, build candidates, schedule runs, or deploy
-a site. It prepares the same output for local viewing and later CI publication.
+The `site` command does not collect releases, build candidates, schedule runs, or
+deploy a site. It prepares the same output for local viewing and later CI publication.
 
 ## Comparison flags
 
