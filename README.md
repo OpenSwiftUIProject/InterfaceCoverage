@@ -208,10 +208,12 @@ python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py collect 
   --xcode /Applications/Xcode-16.4.0.app --xcode /Applications/Xcode-26.6.0.app
 ```
 
-Use `--all-releases` in place of `--release` to compare every published release
-that includes both XCFrameworks. Pass `--site-url` to make summary links
-absolute. Add `--include-manifest` with an earlier manifest to keep its reports
-for other projects in the same site.
+Use `--all-releases` in place of `--release` to compare the published releases
+that include both XCFrameworks. It keeps only the highest patch version of each
+minor version, for example 0.23.1 and not 0.23.0. A release comes after its
+prereleases. `--release` uses the given versions as they are. Pass `--site-url`
+to make summary links absolute. Add `--include-manifest` with an earlier
+manifest to keep its reports for other projects in the same site.
 
 The results for one release, target, and SDK form a cache entry: one report for
 each scope and a `cache.json` file. An entry is reused while its fingerprint

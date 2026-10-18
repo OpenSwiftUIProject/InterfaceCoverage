@@ -109,8 +109,30 @@ def release_metadata(repository, version, directory, refresh=False):
     return json.loads(path.read_text())
 
 
+def version_key(version):
+    """Orders semantic versions. A release comes after its prereleases."""
+    match = re.fullmatch(r'v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?', version)
+    if match is None:
+        return None
+    major, minor, patch, prerelease = match.groups()
+    parts = [(0, int(part), '') if part.isdigit() else (1, 0, part) for part in (prerelease or '').split('.') if part]
+    return (int(major), int(minor), int(patch or 0)), not prerelease, parts
+
+
+def latest_patches(versions):
+    """Keeps the highest patch version of each major and minor version, in the input order.
+    Labels that are not semantic versions are kept."""
+    latest = {}
+    for version in versions:
+        key = version_key(version)
+        if key is not None and (key[0][:2] not in latest or key > version_key(latest[key[0][:2]])):
+            latest[key[0][:2]] = version
+    return [version for version in versions if version_key(version) is None or latest[version_key(version)[0][:2]] == version]
+
+
 def published_releases(repository, work):
-    """Returns the published releases that include both XCFrameworks, oldest first."""
+    """Returns the published releases that include both XCFrameworks, oldest first. Only the
+    highest patch version of each minor version is kept."""
     releases = json.loads(gh('release', 'list', '--repo', repository, '--limit', '1000',
                              '--exclude-drafts', '--json', 'tagName,publishedAt'))
     result = []
@@ -123,7 +145,7 @@ def published_releases(repository, work):
             names = {asset['name'] for asset in release_metadata(repository, version, work / 'releases' / version, refresh=True)['assets']}
         if all(name in names for name in wanted):
             result.append(version)
-    return result
+    return latest_patches(result)
 
 
 def asset_digests(repository, version, work):
@@ -343,7 +365,7 @@ def main():
     releases = collect_command.add_mutually_exclusive_group(required=True)
     releases.add_argument('--release', action='append', help='Release tag. Repeat for more releases.')
     releases.add_argument('--all-releases', action='store_true',
-                          help='Use every published release that includes both XCFrameworks.')
+                          help='Use the highest patch version of each minor version among the published releases that include both XCFrameworks.')
     collect_command.add_argument('--xcode', action='append', required=True, type=pathlib.Path,
                                  help='Xcode application that supplies the baseline SDK. Repeat for more baselines.')
     collect_command.add_argument('--target', action='append', choices=sorted(TARGETS),
