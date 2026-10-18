@@ -196,8 +196,15 @@ item to isolate a baseline. About four versions fill the visible width, the
 percentage axis stays in place while the chart scrolls, and wide bars show their
 values. When one baseline is shown, each version shows the change in matched
 APIs from the previous version, such as `+177 (+4.1%)`. The readout shows the
-same change for the selected bar. Bars support keyboard focus and activation. Missing reports have no bar;
-empty references display `n/a` below the chart. The HTML embed and Markdown/SVG exports remain version tables.
+same change for the selected bar. Bars support keyboard focus and activation.
+Missing reports have no bar; empty references display `n/a` below the chart.
+The HTML embed and Markdown/SVG exports remain version tables.
+
+The previous version of a result is the highest patch version below it among the
+latest patch versions of its group and baseline, for example 0.22.0 for 0.23.1
+and 0.17.3 for 0.18.0. The declaration list adds **Added** and **Removed** tabs
+for the APIs that are matched since that version and no longer matched. The
+`status=added` and `status=removed` URL parameters open these tabs.
 
 To collect OpenSwiftUI release reports, run
 [`Scripts/collect_openswiftui_releases.py`](Scripts/collect_openswiftui_releases.py).
@@ -294,7 +301,8 @@ The site also writes static files for other pages to use:
   become `-`, for example
   `badges/openswiftui-ios-ios-18-5-swiftui-swiftuicore-default.json`.
 - `summary/<project>/<version>.json` lists the coverage of one version for each
-  target, baseline, scope, and profile. `summary/<project>/<version>.md` shows
+  target, baseline, scope, and profile, with the previous version and the number
+  of APIs added and removed since then. `summary/<project>/<version>.md` shows
   the same results as Markdown tables for release notes.
 
 Summary links use the same `report=<version>@<baseline>` selection and leave
@@ -311,7 +319,7 @@ To add a release summary to GitHub release notes, run
 [`Scripts/update_release_notes.py`](Scripts/update_release_notes.py). It writes
 an `## Interface Coverage` section between `<!-- interface-coverage:start -->`
 and `<!-- interface-coverage:end -->` markers, with a link to the version's full
-report. When it runs again, it replaces that section in place. Without the
+report and to the APIs added since the previous version. When it runs again, it replaces that section in place. Without the
 markers, it adds the section at the end of the notes. Use `--dry-run` to print
 the result without editing the release.
 

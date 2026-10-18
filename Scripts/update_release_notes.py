@@ -47,8 +47,17 @@ def section(summary, baselines, profile):
     report = summary['url']
     if not report.startswith(('http://', 'https://')):
         raise SystemExit('The summary has relative links. Generate the site with a site URL.')
-    lines = [START, '## Interface Coverage', '',
-             f"Full report: [{summary['project']} {summary['version']}]({report})", '',
+    # The first cell, the first baseline in the first scope, links to the APIs changed since the
+    # previous version.
+    first = next(item for item in results if item['baseline'] == rows[0] and item['scope'] == scopes[0])
+    links = [f"Full report: [{summary['project']} {summary['version']}]({report})"]
+    if first.get('previous') and not first.get('added') and not first.get('removed'):
+        links.append(f"No API changes since {first['previous']}")
+    elif first.get('previous'):
+        links.append(f"[{first['added']:,} APIs added since {first['previous']}]({first['url']}&status=added)")
+        if first.get('removed'):
+            links.append(f"[{first['removed']:,} removed]({first['url']}&status=removed)")
+    lines = [START, '## Interface Coverage', '', ' · '.join(links), '',
              '| Baseline | ' + ' | '.join(scopes) + ' |', '| --- | ' + ' | '.join('---:' for _ in scopes) + ' |']
     for baseline in rows:
         cells = []

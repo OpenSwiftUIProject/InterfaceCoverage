@@ -272,6 +272,38 @@ struct CoverageSiteTests {
         #expect(FileManager.default.fileExists(atPath: output.appendingPathComponent("summary/example/0.10.0.json").path))
     }
 
+    @Test func recordsCountAPIsAddedAndRemovedSinceThePreviousVersion() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var older = try fixture(root)
+        older["version"] = "0.9.0"
+        // The newer version matches the declaration that the older version misses.
+        var document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("report.json"))) as? [String: Any])
+        var coverage = try #require(document["coverage"] as? [String: Any])
+        let counts = ["reference": 1, "matched": 1, "missing": 0, "extra": 0]
+        coverage["summary"] = counts
+        coverage["byKind"] = [["kind": "struct", "count": counts]]
+        coverage["matched"] = coverage["missing"]
+        coverage["missing"] = []
+        document["coverage"] = coverage
+        try JSONSerialization.data(withJSONObject: document).write(to: root.appendingPathComponent("newer.json"))
+        var newer = older
+        newer["version"] = "0.10.0"
+        newer["report"] = "newer.json"
+        let output = try generate(root, rows: [older, newer], siteURL: "https://example.com/coverage/")
+        let catalog = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: output.appendingPathComponent("catalog.json"))) as? [String: Any])
+        let reports = try #require(catalog["reports"] as? [[String: Any]])
+        let record = try #require(reports.first { $0["version"] as? String == "0.10.0" })
+        #expect(record["previous"] as? String == "0.9.0")
+        #expect(record["added"] as? Int == 1)
+        #expect(record["removed"] as? Int == 0)
+        #expect(reports.first { $0["version"] as? String == "0.9.0" }?["previous"] == nil)
+        let summary = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: output.appendingPathComponent("summary/example/0.10.0.json"))) as? [String: Any])
+        let result = try #require((summary["results"] as? [[String: Any]])?.first)
+        #expect(result["previous"] as? String == "0.9.0")
+        #expect(result["added"] as? Int == 1)
+    }
+
     @Test func rejectsInconsistentCounts() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -72,6 +72,7 @@ public enum CoverageSite {
             pools[key] = (path, Dictionary(uniqueKeysWithValues: sorted.enumerated().map { ($1.key, $0) }))
         }
         var records: [SiteRecord] = []
+        var matched: [String: Set<String>] = [:]
         for (item, group, poolKey, document) in prepared {
             // Every report and its declarations were added to a pool above.
             let pool = pools[poolKey]!
@@ -99,6 +100,22 @@ public enum CoverageSite {
                 nearMisses: coverage.nearMisses.reduce(0) { $0 + $1.missing.count },
                 warnings: document.warnings, report: "reports/\(id).json"
             ))
+            matched[id] = Set(coverage.matched.map(\.id))
+        }
+        // Compare each result with the previous shown version, as on the site: the highest patch
+        // version below it among the latest patch versions of its group and baseline.
+        for index in records.indices where records[index].summary.reference > 0 {
+            let record = records[index]
+            let series = records.filter { $0.group == record.group && $0.baseline == record.baseline && $0.summary.reference > 0 }
+            let order = versionOrder(ordered(series.map(\.version)))
+            let latest = Set(latestPatches(order))
+            guard let position = order.firstIndex(of: record.version),
+                  let version = order[..<position].last(where: latest.contains),
+                  let previous = series.first(where: { $0.version == version }),
+                  let current = matched[record.id], let earlier = matched[previous.id] else { continue }
+            records[index].previous = version
+            records[index].added = current.subtracting(earlier).count
+            records[index].removed = earlier.subtracting(current).count
         }
         let catalog = SiteCatalog(schemaVersion: 1, title: specification.title ?? "InterfaceCoverage", reports: records)
         let catalogData = try encoder.encode(catalog)
@@ -145,6 +162,7 @@ public enum CoverageSite {
                     VersionSummary.Result(
                         target: row.target, baseline: row.baseline, scope: row.scope, profile: row.profile,
                         matched: row.summary.matched, reference: row.summary.reference, percent: row.summary.percent,
+                        previous: row.previous, added: row.added, removed: row.removed,
                         url: link(to: row, in: records, siteURL: specification.siteURL)
                     )
                 })
@@ -410,6 +428,10 @@ private struct SiteRecord: Encodable {
     let nearMisses: Int
     let warnings: [String]
     let report: String
+    /// The previous shown version, and the APIs matched since then or no longer matched.
+    var previous: String?
+    var added: Int?
+    var removed: Int?
 }
 
 /// A shields.io endpoint badge.
@@ -429,6 +451,10 @@ private struct VersionSummary: Encodable {
         let matched: Int
         let reference: Int
         let percent: Double?
+        /// The previous shown version, and the APIs matched since then or no longer matched.
+        let previous: String?
+        let added: Int?
+        let removed: Int?
         let url: String
     }
 

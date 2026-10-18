@@ -49,8 +49,11 @@
   let current = null;
   let documentData = null;
   let request = 0;
-  const statuses = ["missing", "near", "matched", "extra"];
-  const statusLabels = {missing: "Missing", near: "Near misses", matched: "Matched", extra: "Extra"};
+  const statuses = ["missing", "near", "matched", "extra", "added", "removed"];
+  const statusLabels = {missing: "Missing", near: "Near misses", matched: "Matched", extra: "Extra", added: "Added", removed: "Removed"};
+  const entryKey = entry => `${entry.kind}|${entry.owner}|${entry.signature}`;
+  // Added and removed APIs compare a result with its previous version, so the first version has none.
+  const availableStatuses = record => record.previous ? statuses : statuses.filter(status => status !== "added" && status !== "removed");
   const nameKey = entry => `${entry.kind}|${entry.owner}|${entry.name}`;
 
   function element(tag, text, className) {
@@ -180,14 +183,16 @@
     });
   }
 
-  // Compares a result with the previous shown version that has a result for the same baseline.
+  // The previous result for the same baseline. The generator chooses the version: the highest
+  // patch version below this one among the latest patch versions.
+  function previousRecord(record) {
+    return record.previous ? groupRows.find(row => row.baseline === record.baseline && row.version === record.previous) : null;
+  }
+
+  // Compares a result with its previous version.
   function change(record) {
     if (!record.summary.reference) return null;
-    const shown = displayedVersions();
-    const series = rows.filter(row => row.baseline === record.baseline && row.summary.reference > 0 && shown.includes(row.version));
-    const order = versionOrder(unique(series.map(row => row.version)));
-    const index = order.indexOf(record.version);
-    const previous = index > 0 ? series.find(row => row.version === order[index - 1]) : null;
+    const previous = previousRecord(record);
     if (!previous) return null;
     const matched = record.summary.matched - previous.summary.matched;
     return {previous, matched, rate: previous.summary.matched ? matched / previous.summary.matched * 100 : null};
@@ -463,8 +468,12 @@
     }));
     $("notices").replaceChildren(...record.notes.map(note => element("p", note, "notice")),
       ...record.warnings.map(note => element("p", note, "notice warning")));
-    $("statuses").replaceChildren(...statuses.map(status => button(
-      `${statusLabels[status]} ${number(status === "near" ? record.nearMisses ?? 0 : record.summary[status])}`,
+    if (!availableStatuses(record).includes(state.status)) state.status = "missing";
+    const count = status => status === "near" ? record.nearMisses ?? 0
+      : status === "added" || status === "removed" ? record[status] ?? 0 : record.summary[status];
+    const label = status => status === "added" || status === "removed" ? `${statusLabels[status]} since ${record.previous}` : statusLabels[status];
+    $("statuses").replaceChildren(...availableStatuses(record).map(status => button(
+      `${label(status)} ${number(count(status))}`,
       status === state.status, () => {
         state.status = status;
         state.page = 0;
@@ -500,6 +509,11 @@
     return data;
   }
 
+  async function loadRecord(record) {
+    if (!cache.has(record.id)) cache.set(record.id, await loadReport(record.report));
+    return cache.get(record.id);
+  }
+
   async function selectReport(record, preserveFilters = false) {
     const ticket = ++request;
     const changed = state.report !== record.id;
@@ -521,16 +535,23 @@
     $("load-state").textContent = "Loading declarations…";
     saveURL();
     try {
-      let data = cache.get(record.id);
-      if (!data) {
-        data = await loadReport(record.report);
-        cache.set(record.id, data);
+      const data = await loadRecord(record);
+      // Added and removed APIs come from the matched declarations of the previous version.
+      const previous = previousRecord(record);
+      if (previous && !data.changes) {
+        const earlier = (await loadRecord(previous)).coverage.matched;
+        const now = new Set(data.coverage.matched.map(entryKey));
+        const before = new Set(earlier.map(entryKey));
+        data.changes = {
+          added: data.coverage.matched.filter(entry => !before.has(entryKey(entry))),
+          removed: earlier.filter(entry => !now.has(entryKey(entry))),
+        };
       }
       if (ticket !== request) return;
       documentData = data;
       // Offer the complete report, with pool indices resolved to declarations.
       if (downloadURL) URL.revokeObjectURL(downloadURL);
-      downloadURL = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: "application/json"}));
+      downloadURL = URL.createObjectURL(new Blob([JSON.stringify({...data, changes: undefined}, null, 2)], {type: "application/json"}));
       $("download").href = downloadURL;
       $("download").download = `${record.id}.json`;
       choices("kind", data.coverage.byKind.map(row => row.kind), "All kinds");
@@ -587,6 +608,7 @@
   // kind, owner, and name. It usually shows a signature difference.
   function statusEntries() {
     const coverage = documentData.coverage;
+    if (state.status === "added" || state.status === "removed") return documentData.changes?.[state.status] ?? [];
     if (state.status !== "near") return coverage[state.status];
     const extras = new Map();
     for (const entry of coverage.extra) extras.set(nameKey(entry), [...(extras.get(nameKey(entry)) || []), entry]);
