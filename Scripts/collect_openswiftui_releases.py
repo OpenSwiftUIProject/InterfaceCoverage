@@ -226,6 +226,7 @@ def collect(arguments):
     versions = published_releases(arguments.repository, work) if arguments.all_releases else arguments.release
     inputs = {}
     records = []
+    tags = []
     for target in arguments.target or ['iOS', 'macOS']:
         settings = TARGETS[target]
         for xcode in arguments.xcode:
@@ -248,6 +249,7 @@ def collect(arguments):
                     references=[sha256(references[module]) for module in MODULES],
                 ), sort_keys=True).encode()).hexdigest()
                 tag = f'{version}-{sdk_name}-{fingerprint[:16]}'
+                tags.append(tag)
                 directory = work / 'reports' / 'openswiftui' / version / target / sdk_name
                 entry, source = valid_entry(directory, fingerprint), 'local cache'
                 if entry is None and oci:
@@ -291,6 +293,8 @@ def collect(arguments):
                                         scope=report['scope'], profile='Default', notes=[settings['note']],
                                         report=str(path.relative_to(work)), metadata=entry['metadata']))
     (work / 'records.json').write_text(json.dumps(records, indent=2) + '\n')
+    # The cache entries of this run. `prune_oci_cache.py` keeps these and deletes the others.
+    (work / 'oci-tags.txt').write_text(''.join(f'{tag}\n' for tag in tags))
     if not arguments.no_site:
         build_site([work], arguments)
 

@@ -105,6 +105,7 @@ jobs:
           name: reports-xcode-${{ matrix.xcode }}
           path: |
             ${{ runner.temp }}/work/records.json
+            ${{ runner.temp }}/work/oci-tags.txt
             ${{ runner.temp }}/work/reports
           retention-days: 1
 
@@ -152,6 +153,29 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  # Deletes the cache entries that this run did not use, such as entries of an earlier rules or
+  # cache version. It runs only after every baseline succeeded, so the list of used entries is
+  # complete.
+  prune-cache:
+    name: Prune unused cache entries
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: reports-*
+          path: ${{ runner.temp }}/reports
+      - name: Delete unused cache entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/prune_oci_cache.py --keep "$RUNNER_TEMP"/reports/*/oci-tags.txt
 
   release-notes:
     name: Add coverage to the release notes

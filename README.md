@@ -350,7 +350,13 @@ All jobs use GitHub-hosted runners.
 3. `site` assembles the reports of all baselines, and `deploy` publishes them
    with `actions/deploy-pages`. The Pages source of this repository is GitHub
    Actions.
-4. For a release dispatch, `update_release_notes.py` adds the iOS 18.5 and
+4. `prune-cache` runs `Scripts/prune_oci_cache.py` after the deploy. Each
+   `collect` run writes the cache tags that it used to `oci-tags.txt`, and the
+   job deletes the package versions without one of those tags, such as entries
+   of an earlier rules or cache version. It needs every baseline to succeed, and
+   it refuses to run with an empty tag list. Use `--dry-run` to list the
+   versions without deleting them.
+5. For a release dispatch, `update_release_notes.py` adds the iOS 18.5 and
    macOS 15.5 table to the OpenSwiftUI release notes. This needs the
    `OPENSWIFTUI_RELEASE_PAT` secret: a fine-grained token with write access to
    the contents of OpenSwiftUIProject/OpenSwiftUI.
