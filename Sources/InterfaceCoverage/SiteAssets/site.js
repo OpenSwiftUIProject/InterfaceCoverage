@@ -160,8 +160,8 @@
       }, "chart-legend-item");
       item.setAttribute("aria-label", `Show ${baseline}`);
       item.style.setProperty("--series-color", `var(--series-${index % 6})`);
-      const swatch = svgElement("svg", {viewBox: "0 0 28 12", width: 28, height: 12, "aria-hidden": "true"});
-      swatch.append(svgElement("line", {x1: 1, y1: 6, x2: 27, y2: 6, "stroke-dasharray": ["none", "7 4", "2 4"][index % 3]}));
+      const swatch = svgElement("svg", {viewBox: "0 0 12 12", width: 12, height: 12, "aria-hidden": "true"});
+      swatch.append(svgElement("rect", {width: 12, height: 12, rx: 2}));
       item.append(swatch, element("span", baseline));
       legend.append(item);
     }
@@ -174,78 +174,71 @@
     scroll.append(stage);
     $("chart").replaceChildren(header, scroll);
     chartWidth = $("chart").clientWidth;
-    const spacing = Math.max(72, ...versions.map(version => version.length * 7 + 20));
-    const labelPadding = Math.max(28, ...versions.map(version => version.length * 3.5 + 4));
-    const left = Math.max(56, labelPadding);
-    const width = Math.max(scroll.clientWidth, left + labelPadding + (versions.length - 1) * spacing);
-    const height = 292, right = width - labelPadding, top = 28, bottom = 238;
-    const x = index => versions.length === 1 ? (left + right) / 2 : left + index * (right - left) / (versions.length - 1);
+    // Group bars by version. Each bar in a group is one visible SDK baseline.
+    const visible = baselines.filter(baseline => !state.baseline || baseline === state.baseline);
+    const gap = 4, left = 56, right = 16, height = 292, top = 28, bottom = 238;
+    const minimumBand = Math.max(visible.length * 14 + (visible.length - 1) * gap + 24, ...versions.map(version => version.length * 7 + 20));
+    const band = Math.max(minimumBand, (scroll.clientWidth - left - right) / Math.max(versions.length, 1));
+    const width = left + right + band * versions.length;
+    const barWidth = Math.min(visible.length === 1 ? 48 : 32, (band - 24 - (visible.length - 1) * gap) / Math.max(visible.length, 1));
+    const groupWidth = visible.length * barWidth + (visible.length - 1) * gap;
+    const center = index => left + band * (index + 0.5);
     const y = value => bottom - value / 100 * (bottom - top);
     stage.style.width = `${width}px`;
     stage.style.height = `${height}px`;
     const svg = svgElement("svg", {viewBox: `0 0 ${width} ${height}`, width, height, role: "img", "aria-labelledby": "chart-svg-title chart-svg-description"});
     svg.append(svgElement("title", {id: "chart-svg-title"}, `${state.project} interface coverage`),
-      svgElement("desc", {id: "chart-svg-description"}, "Coverage from 0 to 100 percent across candidate versions. Each line is an SDK baseline. Missing reports and empty references leave gaps. Use the data point buttons to open a report."));
+      svgElement("desc", {id: "chart-svg-description"}, "Coverage from 0 to 100 percent for each candidate version. Each bar in a group is an SDK baseline. Missing reports and empty references have no bar. Use the bar buttons to open a report."));
     for (let value = 0; value <= 100; value += 25) {
-      svg.append(svgElement("line", {x1: left, x2: right, y1: y(value), y2: y(value), class: "chart-grid"}),
+      svg.append(svgElement("line", {x1: left, x2: width - right, y1: y(value), y2: y(value), class: "chart-grid"}),
         svgElement("text", {x: left - 12, y: y(value) + 4, "text-anchor": "end", class: "chart-axis"}, `${value}%`));
     }
     versions.forEach((version, index) => {
-      svg.append(svgElement("text", {x: x(index), y: bottom + 28, "text-anchor": "middle", class: "chart-axis chart-version"}, version));
+      svg.append(svgElement("text", {x: center(index), y: bottom + 28, "text-anchor": "middle", class: "chart-axis chart-version"}, version));
     });
     stage.append(svg);
     const unavailable = element("div", undefined, "chart-unavailable");
-    const points = [];
-    function nearestPoint(event) {
-      const bounds = stage.getBoundingClientRect();
-      const pointerX = event.clientX - bounds.left, pointerY = event.clientY - bounds.top;
-      return points.reduce((nearest, point) => {
-        const distance = Math.hypot(point.x - pointerX, point.y - pointerY);
-        return !nearest || distance < nearest.distance ? {...point, distance} : nearest;
-      }, null);
-    }
     for (const [index, baseline] of baselines.entries()) {
-      if (state.baseline && baseline !== state.baseline) continue;
+      const slot = visible.indexOf(baseline);
+      if (slot < 0) continue;
       const series = new Map(rows.filter(row => row.baseline === baseline).map(row => [row.version, row]));
-      let path = "", connected = false;
       versions.forEach((version, versionIndex) => {
         const record = series.get(version);
-        if (!record) { connected = false; return; }
+        if (!record) return;
         const plottable = record.summary.reference > 0;
         const label = `${version}, ${baseline}: ${percent(record.summary)}, ${record.summary.matched} of ${record.summary.reference}`;
-        const point = button(undefined, record.id === state.report, event => {
-          // Large hit areas can overlap. Pointer input selects the nearest mark;
-          // keyboard activation keeps the focused report.
-          const selected = plottable && event.detail ? nearestPoint(event) : {record, button: point};
-          selected.button.focus({preventScroll: true});
-          selectReport(selected.record);
-        }, plottable ? "chart-point" : "chart-unavailable-point");
-        point.dataset.report = record.id;
-        point.setAttribute("aria-label", label);
-        point.title = label;
-        point.style.setProperty("--series-color", `var(--series-${index % 6})`);
-        point.addEventListener("pointermove", event => chartReadout(plottable ? nearestPoint(event).record : record));
-        point.addEventListener("focus", () => chartReadout(record));
-        point.addEventListener("pointerleave", () => {
-          if (document.activeElement !== point) chartReadout(rows.find(row => row.id === state.report));
+        const bar = button(undefined, record.id === state.report, () => selectReport(record), plottable ? "chart-bar" : "chart-unavailable-point");
+        bar.dataset.report = record.id;
+        bar.setAttribute("aria-label", label);
+        bar.title = label;
+        bar.style.setProperty("--series-color", `var(--series-${index % 6})`);
+        bar.addEventListener("pointerenter", () => chartReadout(record));
+        bar.addEventListener("focus", () => chartReadout(record));
+        bar.addEventListener("pointerleave", () => {
+          if (document.activeElement !== bar) chartReadout(rows.find(row => row.id === state.report));
         });
-        point.addEventListener("blur", () => chartReadout(rows.find(row => row.id === state.report)));
+        bar.addEventListener("blur", () => chartReadout(rows.find(row => row.id === state.report)));
         if (!plottable) {
-          connected = false;
-          point.textContent = `${version} / ${baseline}: n/a`;
-          unavailable.append(point);
+          bar.textContent = `${version} / ${baseline}: n/a`;
+          unavailable.append(bar);
           return;
         }
-        const pointX = x(versionIndex), pointY = y(100 * record.summary.matched / record.summary.reference);
-        points.push({record, button: point, x: pointX, y: pointY});
-        path += `${connected ? "L" : "M"} ${pointX} ${pointY} `;
-        connected = true;
-        point.style.left = `${pointX}px`;
-        point.style.top = `${pointY}px`;
-        point.append(element("span"));
-        stage.append(point);
+        const value = 100 * record.summary.matched / record.summary.reference;
+        const x = center(versionIndex) - groupWidth / 2 + slot * (barWidth + gap);
+        // The button covers the whole column, so a short bar is still easy to select.
+        bar.style.left = `${x}px`;
+        bar.style.top = `${top}px`;
+        bar.style.width = `${barWidth}px`;
+        bar.style.height = `${bottom - top}px`;
+        const fill = element("span");
+        fill.style.height = `${Math.max(2, bottom - y(value))}px`;
+        bar.append(fill);
+        stage.append(bar);
+        // Values fit above the bars when one baseline is shown.
+        if (visible.length === 1) {
+          svg.append(svgElement("text", {x: x + barWidth / 2, y: y(value) - 6, "text-anchor": "middle", class: "chart-value"}, percent(record.summary)));
+        }
       });
-      svg.append(svgElement("path", {d: path.trim(), class: "chart-series", stroke: `var(--series-${index % 6})`, "stroke-dasharray": ["none", "7 4", "2 4"][index % 3]}));
     }
     if (unavailable.childElementCount) {
       unavailable.prepend(element("p", "Not plotted: these references contain no declarations.", "caption"));

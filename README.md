@@ -183,12 +183,13 @@ the chart itself can also be opened from `index.html` without a server.
 | `metadata` | Optional string-to-string provenance fields. These are shown in the report. |
 
 Manifest order controls project, filter, baseline, and table row order. The main
-page shows a line chart with one series per SDK baseline and a fixed 0–100% axis.
-Numeric release labels, including prereleases, sort from oldest to newest. Custom
-version labels keep their manifest order. Select a point to open its report, or
-select a legend item to isolate a baseline. Points support keyboard focus and
-activation. Missing reports leave gaps; empty references display `n/a` below the
-chart. The HTML embed and Markdown/SVG exports remain version tables.
+page shows a grouped bar chart with a fixed 0–100% axis. Each group is a
+candidate version, and each bar in a group is an SDK baseline. Numeric release
+labels, including prereleases, sort from oldest to newest. Custom version labels
+keep their manifest order. Select a bar to open its report, or select a legend
+item to isolate a baseline and show its values. Bars support keyboard focus and
+activation. Missing reports have no bar; empty references display `n/a` below
+the chart. The HTML embed and Markdown/SVG exports remain version tables.
 
 To collect OpenSwiftUI release reports, run
 [`Scripts/collect_openswiftui_releases.py`](Scripts/collect_openswiftui_releases.py).
