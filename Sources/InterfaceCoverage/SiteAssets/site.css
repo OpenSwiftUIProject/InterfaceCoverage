@@ -9,6 +9,8 @@
   --selected: #eff8f3;
   --warning: #78561c;
   --warning-background: #fcf8ef;
+  --positive: #087d4c;
+  --negative: #b42318;
   --series-0: #087d4c;
   --series-1: #2563bc;
   --series-2: #b96612;
@@ -66,13 +68,19 @@ main { max-width: 1264px; margin: 0 auto; padding: 34px 32px 44px; }
 .chart-legend-item[aria-pressed="true"] { color: var(--text); }
 .chart-readout { display: flex; flex-direction: column; margin-left: auto; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
 .chart-readout strong { color: var(--text); font-size: 13px; font-weight: 500; }
-.chart-scroll { overflow-x: auto; }
+.chart-body { display: flex; }
+.chart-axis-column { flex: none; display: block; }
+.chart-scroll { flex: 1; min-width: 0; overflow-x: auto; }
 .chart-stage { position: relative; }
 .chart-stage > svg { display: block; overflow: visible; }
 .chart-grid { stroke: var(--line); stroke-width: 1; }
 .chart-axis { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .chart-version { fill: var(--text); }
 .chart-value { fill: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-change { font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-change-up { color: var(--positive); fill: var(--positive); }
+.chart-change-down { color: var(--negative); fill: var(--negative); }
+.chart-change-flat { color: var(--muted); fill: var(--muted); }
 .chart-bar { position: absolute; display: flex; align-items: flex-end; padding: 0; border: 0; border-radius: 3px 3px 0 0; background: transparent; }
 .chart-bar:hover:not(:disabled) { background: var(--surface); }
 .chart-bar span { width: 100%; border-radius: 3px 3px 0 0; background: var(--series-color); }
@@ -187,6 +195,7 @@ body[data-embed="true"] .matrix-cell { box-shadow: none; }
 }
 @media (prefers-color-scheme: dark) {
   :root { color-scheme: dark; --background: #161b1e; --surface: #20272c; --text: #e7edef; --muted: #a1adb7; --line: #354047; --accent: #68cba0; --selected: #213a30; --warning: #d9b778; --warning-background: #322d22; }
+  :root { --positive: #68cba0; --negative: #f97066; }
   :root { --series-0: #68cba0; --series-1: #79a9ef; --series-2: #e9ac66; --series-3: #bda0ed; --series-4: #69ced1; --series-5: #ec95b0; }
   button.primary { color: #12281e; }
 }

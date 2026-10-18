@@ -188,9 +188,12 @@ page shows a grouped bar chart with a fixed 0–100% axis. Each group is a
 candidate version, and each bar in a group is an SDK baseline. Numeric release
 labels, including prereleases, sort from oldest to newest. Custom version labels
 keep their manifest order. Select a bar to open its report, or select a legend
-item to isolate a baseline and show its values. Bars support keyboard focus and
-activation. Missing reports have no bar; empty references display `n/a` below
-the chart. The HTML embed and Markdown/SVG exports remain version tables.
+item to isolate a baseline. About four versions fill the visible width, the
+percentage axis stays in place while the chart scrolls, and wide bars show their
+values. When one baseline is shown, each version shows the change in matched
+APIs from the previous version, such as `+177 (+4.1%)`. The readout shows the
+same change for the selected bar. Bars support keyboard focus and activation. Missing reports have no bar;
+empty references display `n/a` below the chart. The HTML embed and Markdown/SVG exports remain version tables.
 
 To collect OpenSwiftUI release reports, run
 [`Scripts/collect_openswiftui_releases.py`](Scripts/collect_openswiftui_releases.py).

@@ -15,6 +15,17 @@
   const unique = values => [...new Set(values)];
   const number = value => value.toLocaleString("en-US");
   const percent = count => count.reference ? `${(100 * count.matched / count.reference).toFixed(2)}%` : "n/a";
+  const ratio = count => 100 * count.matched / count.reference;
+  const sign = value => value > 0 ? "+" : value < 0 ? "−" : "±";
+  const changeClass = value => value > 0 ? "chart-change-up" : value < 0 ? "chart-change-down" : "chart-change-flat";
+
+  // Formats a change in matched declarations, such as `+177 (+4.1%)`.
+  function changeText(difference, withRate = true) {
+    const count = `${sign(difference.matched)}${number(Math.abs(difference.matched))}`;
+    if (!withRate || difference.rate === null) return count;
+    return `${count} (${sign(difference.rate)}${Math.abs(difference.rate).toFixed(1)}%)`;
+  }
+
   const cache = new Map();
   const pools = new Map();
   let downloadURL = null;
@@ -124,12 +135,29 @@
     return node;
   }
 
+  // Compares a result with the previous version that has a result for the same baseline.
+  function change(record) {
+    if (!record.summary.reference) return null;
+    const series = rows.filter(row => row.baseline === record.baseline && row.summary.reference > 0);
+    const order = versionOrder(unique(series.map(row => row.version)));
+    const index = order.indexOf(record.version);
+    const previous = index > 0 ? series.find(row => row.version === order[index - 1]) : null;
+    if (!previous) return null;
+    const matched = record.summary.matched - previous.summary.matched;
+    return {previous, matched, rate: previous.summary.matched ? matched / previous.summary.matched * 100 : null};
+  }
+
   function chartReadout(record) {
     if (!record || !$("chart-readout")) return;
-    $("chart-readout").replaceChildren(
+    const lines = [
       element("strong", `${record.version} · ${record.baseline}`),
-      element("span", `${percent(record.summary)} · ${number(record.summary.matched)} / ${number(record.summary.reference)} declarations`)
-    );
+      element("span", `${percent(record.summary)} · ${number(record.summary.matched)} / ${number(record.summary.reference)} declarations`),
+    ];
+    const difference = change(record);
+    if (difference) {
+      lines.push(element("span", `${changeText(difference)} matched APIs since ${difference.previous.version}`, changeClass(difference.matched)));
+    }
+    $("chart-readout").replaceChildren(...lines);
   }
 
   function updateChartSelection() {
@@ -154,6 +182,9 @@
     const scrollLeft = $("chart-scroll")?.scrollLeft || 0;
     const baselines = unique(groupRows.map(row => row.baseline));
     const versions = versionOrder(unique(groupRows.map(row => row.version)));
+    const visible = baselines.filter(baseline => !state.baseline || baseline === state.baseline);
+    // With one baseline, each version also shows the change from the previous version.
+    const showChanges = visible.length === 1;
     const header = element("div", undefined, "chart-header");
     const legend = element("div", undefined, "chart-legend");
     legend.setAttribute("aria-label", "Chart baselines");
@@ -176,21 +207,31 @@
       legend.append(item);
     }
     header.append(legend, readout);
+    const results = new Map(rows.filter(row => visible.includes(row.baseline)).map(row => [`${row.baseline}|${row.version}`, row]));
+    const changes = new Map(showChanges ? rows.filter(row => visible.includes(row.baseline)).map(row => [row.id, change(row)]) : []);
+    // The axis stays in place while the plot scrolls horizontally.
+    // Leave room for the change labels and an overlay scroll bar below the plot.
+    const axisWidth = 48, top = 28, bottom = 286, height = showChanges ? bottom + 68 : bottom + 54;
+    const axis = svgElement("svg", {width: axisWidth, height, "aria-hidden": "true", class: "chart-axis-column"});
     const scroll = element("div", undefined, "chart-scroll");
     scroll.id = "chart-scroll";
     const stage = element("div", undefined, "chart-stage");
     stage.setAttribute("role", "group");
     stage.setAttribute("aria-label", `${state.project} coverage by version`);
     scroll.append(stage);
-    $("chart").replaceChildren(header, scroll);
+    const body = element("div", undefined, "chart-body");
+    body.append(axis, scroll);
+    $("chart").replaceChildren(header, body);
     chartWidth = $("chart").clientWidth;
     // Group bars by version. Each bar in a group is one visible SDK baseline.
-    const visible = baselines.filter(baseline => !state.baseline || baseline === state.baseline);
-    const gap = 4, left = 56, right = 16, height = 292, top = 28, bottom = 238;
+    // About four versions fill the visible width, or two on a narrow screen.
+    const gap = 6, left = 8, right = 16;
+    const available = scroll.clientWidth - left - right;
+    const perView = Math.min(Math.max(versions.length, 1), available < 520 ? 2 : 4);
     const minimumBand = Math.max(visible.length * 14 + (visible.length - 1) * gap + 24, ...versions.map(version => version.length * 7 + 20));
-    const band = Math.max(minimumBand, (scroll.clientWidth - left - right) / Math.max(versions.length, 1));
+    const band = Math.max(minimumBand, available / perView);
     const width = left + right + band * versions.length;
-    const barWidth = Math.min(visible.length === 1 ? 48 : 32, (band - 24 - (visible.length - 1) * gap) / Math.max(visible.length, 1));
+    const barWidth = Math.min(visible.length === 1 ? 96 : 64, (band - 32 - (visible.length - 1) * gap) / Math.max(visible.length, 1));
     const groupWidth = visible.length * barWidth + (visible.length - 1) * gap;
     const center = index => left + band * (index + 0.5);
     const y = value => bottom - value / 100 * (bottom - top);
@@ -198,10 +239,10 @@
     stage.style.height = `${height}px`;
     const svg = svgElement("svg", {viewBox: `0 0 ${width} ${height}`, width, height, role: "img", "aria-labelledby": "chart-svg-title chart-svg-description"});
     svg.append(svgElement("title", {id: "chart-svg-title"}, `${state.project} interface coverage`),
-      svgElement("desc", {id: "chart-svg-description"}, "Coverage from 0 to 100 percent for each candidate version. Each bar in a group is an SDK baseline. Missing reports and empty references have no bar. Use the bar buttons to open a report."));
+      svgElement("desc", {id: "chart-svg-description"}, "Coverage from 0 to 100 percent for each candidate version. Each bar in a group is an SDK baseline. With one baseline, each version shows the change in matched APIs from the previous version. Missing reports and empty references have no bar. Use the bar buttons to open a report."));
     for (let value = 0; value <= 100; value += 25) {
-      svg.append(svgElement("line", {x1: left, x2: width - right, y1: y(value), y2: y(value), class: "chart-grid"}),
-        svgElement("text", {x: left - 12, y: y(value) + 4, "text-anchor": "end", class: "chart-axis"}, `${value}%`));
+      svg.append(svgElement("line", {x1: 0, x2: width, y1: y(value), y2: y(value), class: "chart-grid"}));
+      axis.append(svgElement("text", {x: axisWidth - 10, y: y(value) + 4, "text-anchor": "end", class: "chart-axis"}, `${value}%`));
     }
     versions.forEach((version, index) => {
       svg.append(svgElement("text", {x: center(index), y: bottom + 28, "text-anchor": "middle", class: "chart-axis chart-version"}, version));
@@ -211,9 +252,8 @@
     for (const [index, baseline] of baselines.entries()) {
       const slot = visible.indexOf(baseline);
       if (slot < 0) continue;
-      const series = new Map(rows.filter(row => row.baseline === baseline).map(row => [row.version, row]));
       versions.forEach((version, versionIndex) => {
-        const record = series.get(version);
+        const record = results.get(`${baseline}|${version}`);
         if (!record) return;
         const plottable = record.summary.reference > 0;
         const label = `${version}, ${baseline}: ${percent(record.summary)}, ${record.summary.matched} of ${record.summary.reference}`;
@@ -233,7 +273,8 @@
           unavailable.append(bar);
           return;
         }
-        const value = 100 * record.summary.matched / record.summary.reference;
+        const value = ratio(record.summary);
+        const difference = changes.get(record.id);
         const x = center(versionIndex) - groupWidth / 2 + slot * (barWidth + gap);
         // The button covers the whole column, so a short bar is still easy to select.
         bar.style.left = `${x}px`;
@@ -244,9 +285,12 @@
         fill.style.height = `${Math.max(2, bottom - y(value))}px`;
         bar.append(fill);
         stage.append(bar);
-        // Values fit above the bars when one baseline is shown.
-        if (visible.length === 1) {
+        // Values fit above bars that are wide enough.
+        if (barWidth >= 40) {
           svg.append(svgElement("text", {x: x + barWidth / 2, y: y(value) - 6, "text-anchor": "middle", class: "chart-value"}, percent(record.summary)));
+        }
+        if (difference) {
+          svg.append(svgElement("text", {x: x + barWidth / 2, y: bottom + 46, "text-anchor": "middle", class: `chart-change ${changeClass(difference.matched)}`}, changeText(difference)));
         }
       });
     }
