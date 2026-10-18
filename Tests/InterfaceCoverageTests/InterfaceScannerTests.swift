@@ -506,6 +506,9 @@ struct InterfaceScannerTests {
         let device = TargetPlatform(triple: "arm64-apple-ios18.0")
         #expect(simulator?.comparisonKey != device?.comparisonKey)
         #expect(TargetPlatform(triple: "arm64-apple-ios18.0-macabi")?.platform == "macCatalyst")
+        // arm64e is a variant of arm64, so the pair is not reported as different architectures.
+        #expect(macOS?.architectureFamily == oldMacOS?.architectureFamily)
+        #expect(macOS?.architectureFamily != TargetPlatform(triple: "x86_64-apple-macos15.0")?.architectureFamily)
     }
 
     @Test func subscriptParameterNamesAreLocalUnlessALabelIsExplicit() throws {

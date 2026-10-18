@@ -106,7 +106,7 @@ struct CompareInterfaces: ParsableCommand {
         if targets.count != inputs.count {
             warnings.append("Some target headers are missing or unknown. Target compatibility could not be verified for all inputs.")
         }
-        if Set(targets.map(\.architecture)).count > 1 {
+        if Set(targets.map(\.architectureFamily)).count > 1 {
             warnings.append("Input architectures differ. Declarations can depend on the architecture.")
         }
         var options = ScanOptions(

@@ -375,7 +375,8 @@ Default module aliases are:
 
 Other module prefixes are kept. Alias chains are supported; cycles are errors.
 Files for different operating systems or simulator/device environments are
-rejected by default. Different architectures produce a warning. Deployment target
+rejected by default. Different architectures produce a warning; arm64 and arm64e
+count as one architecture. Deployment target
 versions can differ because an interface can declare APIs newer than that target.
 
 ## Counting rules

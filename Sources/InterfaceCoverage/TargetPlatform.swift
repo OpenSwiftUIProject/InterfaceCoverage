@@ -14,4 +14,7 @@ public struct TargetPlatform: Sendable, Equatable {
     }
 
     public var comparisonKey: String { "\(platform)/\(environment)" }
+
+    /// The architecture without its variant. arm64e and arm64 interfaces declare the same APIs.
+    public var architectureFamily: String { architecture == "arm64e" ? "arm64" : architecture }
 }

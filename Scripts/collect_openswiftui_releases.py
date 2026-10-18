@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 TOOL = pathlib.Path(__file__).resolve().parent.parent
 # Increase when the cache entry layout or the comparison commands change.
 # Increase `ScanOptions.currentRulesVersion` in the tool when signatures change.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 ARTIFACT_TYPE = 'application/vnd.openswiftuiproject.interface-coverage.cache.v1'
 MODULES = ['SwiftUI', 'SwiftUICore']
 # The combined scope comes first, so summaries and the site show it first.
