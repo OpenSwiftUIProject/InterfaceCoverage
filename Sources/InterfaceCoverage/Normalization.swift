@@ -2,6 +2,14 @@ import SwiftSyntax
 
 struct Normalization {
     let options: ScanOptions
+    /// Member typealiases by qualified name, such as `SwiftUI.Box.Value`.
+    var typealiases: [String: TypealiasDefinition] = [:]
+    /// The typealiases to expand. `nil` expands all of them.
+    var expandedTypealiases: Set<String>?
+
+    init(options: ScanOptions) {
+        self.options = options
+    }
 
 
     func validate() throws {
@@ -70,7 +78,8 @@ struct Normalization {
         _ node: some SyntaxProtocol,
         generics: [String: String] = [:],
         stripSwift: Bool = true,
-        normalizeNamespaces: Bool = true
+        normalizeNamespaces: Bool = true,
+        expandTypealiases: Bool = true
     ) -> [Token] {
         let sourceTokens = node.tokens(viewMode: .sourceAccurate).compactMap { token -> Token? in
             let raw = token.text
@@ -119,7 +128,89 @@ struct Normalization {
             result.append(spelling)
             index += 1
         }
-        return result
+        return expandTypealiases && !typealiases.isEmpty ? expandingTypealiases(result) : result
+    }
+
+    /// Replaces each `Owner<Arguments>.Alias` path with the typealias definition.
+    /// The owner's generic arguments replace its generic parameters.
+    private func expandingTypealiases(_ tokens: [Token]) -> [Token] {
+        func isName(_ text: String) -> Bool {
+            text.first.map { $0.isLetter || $0 == "_" } ?? false
+        }
+        var tokens = tokens
+        var index = 0
+        var expansions = 0
+        while index < tokens.count {
+            guard isName(tokens[index].text), index == 0 || tokens[index - 1].text != "." else {
+                index += 1
+                continue
+            }
+            // Read a path of names with optional generic arguments.
+            var names: [String] = []
+            var arguments: [[Token]] = []
+            var cursor = index
+            var aliasHasArguments = false
+            while cursor < tokens.count, isName(tokens[cursor].text) {
+                names.append(tokens[cursor].text)
+                cursor += 1
+                aliasHasArguments = false
+                if cursor < tokens.count, tokens[cursor].text == "<", tokens[cursor].attachesLeft,
+                   let (list, end) = genericArguments(tokens, from: cursor) {
+                    arguments.append(contentsOf: list)
+                    aliasHasArguments = true
+                    cursor = end
+                }
+                guard cursor + 1 < tokens.count, tokens[cursor].text == ".", isName(tokens[cursor + 1].text) else { break }
+                cursor += 1
+            }
+            let key = names.joined(separator: ".")
+            guard names.count > 1, !aliasHasArguments, expansions < 64,
+                  expandedTypealiases?.contains(key) ?? true, let definition = typealiases[key],
+                  arguments.isEmpty || arguments.count == definition.parameters.count else {
+                // Continue inside the path, so that generic arguments are expanded too.
+                index += 1
+                continue
+            }
+            let substitutions = Dictionary(uniqueKeysWithValues: zip(definition.parameters, arguments))
+            var replacement: [Token] = []
+            for (offset, token) in definition.tokens.enumerated() {
+                let isRoot = offset == 0 || definition.tokens[offset - 1].text != "."
+                if isRoot, let argument = substitutions[token.text] {
+                    replacement += argument
+                } else {
+                    replacement.append(token)
+                }
+            }
+            if let first = replacement.first, tokens[index].attachesLeft != first.attachesLeft {
+                replacement[0].attachesLeft = tokens[index].attachesLeft
+            }
+            // Expand the replacement again in case it uses another typealias.
+            tokens.replaceSubrange(index..<cursor, with: replacement)
+            expansions += 1
+        }
+        return tokens
+    }
+
+    /// Reads a generic argument list that starts at `<`. Returns the arguments
+    /// and the index after the closing `>`.
+    private func genericArguments(_ tokens: [Token], from start: Int) -> ([[Token]], Int)? {
+        var depth = 0
+        var arguments: [[Token]] = [[]]
+        for index in start..<tokens.count {
+            let text = tokens[index].text
+            if text == "<" || text == "(" || text == "[" {
+                depth += 1
+                if depth == 1 { continue }
+            } else if text == ">" || text == ")" || text == "]" {
+                depth -= 1
+                if depth == 0 { return (arguments, index + 1) }
+            } else if text == ",", depth == 1 {
+                arguments.append([])
+                continue
+            }
+            arguments[arguments.count - 1].append(tokens[index])
+        }
+        return nil
     }
 
     /// Reports whether a token follows the previous token without a space,
@@ -202,6 +293,12 @@ struct Normalization {
         let result = rewriter.rewrite(clause).cast(FunctionParameterClauseSyntax.self)
         return (result, rewriter.parameters)
     }
+}
+
+struct TypealiasDefinition {
+    let tokens: [Token]
+    /// The owner's generic parameters, in declaration order.
+    let parameters: [String]
 }
 
 struct Token {

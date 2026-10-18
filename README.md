@@ -272,6 +272,12 @@ versions can differ because an interface can declare APIs newer than that target
   `lhs`/`rhs` or `a`/`b`, are ignored for all operators, including `static ==`.
   Ordinary function labels still distinguish overloads. Namespace containers
   are normalized only when selected with `--ignore-namespace`.
+- Expand a member typealias, such as `SwiftUI.Key.Value` or
+  `Combine.Just<T>.Failure`, when both sides declare that typealias. Each side
+  uses its own definition, and the owner's generic arguments replace its
+  generic parameters. A typealias declared on one side only is kept, because it
+  can stand in for a type on the other side. Module-level and generic
+  typealiases are not expanded.
 - Write normalized signatures with standard Swift spacing, such as
   `func map<T1>(_: (T0) -> T1) -> SwiftUI.Box<T1>`. Generic parameters are
   numbered from the outermost scope.
@@ -283,7 +289,7 @@ versions can differ because an interface can declare APIs newer than that target
   emitted declarations, not an evaluation of compiler features or build flags.
 
 This is a syntactic comparison, not a Swift type checker or an ABI checker. It
-does not expand type aliases, infer transitive conformances, resolve inherited
+does not expand other type aliases, infer transitive conformances, resolve inherited
 members, equate all equivalent Swift type spellings, or check actor isolation,
 ownership in accessors, calling conventions, default values, or availability
 version ranges. Generic names from an external type can only be normalized when

@@ -1,18 +1,28 @@
 import SwiftSyntax
 
 final class DeclarationCollector {
-    let normalization: Normalization
+    var normalization: Normalization
     var types: [String: DeclarationContext] = [:]
     var entries: [String: APIEntry] = [:]
-    var input: InterfaceInput
-    var converter: SourceLocationConverter
+    let parsed: [(InterfaceInput, SourceFileSyntax)]
+    var input = InterfaceInput(path: "", module: "", source: "")
+    var converter = SourceLocationConverter(fileName: "", tree: SourceFileSyntax(statements: []))
     var indexOnly = true
     var indexExtensions = false
 
-    init(options: ScanOptions, input: InterfaceInput, tree: SourceFileSyntax) {
+    init(options: ScanOptions, parsed: [(InterfaceInput, SourceFileSyntax)]) {
         normalization = Normalization(options: options)
-        self.input = input
-        converter = SourceLocationConverter(fileName: input.path, tree: tree)
+        self.parsed = parsed
+    }
+
+    func run(indexExtensions: Bool) throws {
+        self.indexExtensions = indexExtensions
+        for (input, tree) in parsed {
+            self.input = input
+            converter = SourceLocationConverter(fileName: input.path, tree: tree)
+            let context = DeclarationContext(owner: normalization.module(input.module))
+            try collect(tree.statements.compactMap { $0.item.as(DeclSyntax.self) }, context: context)
+        }
     }
 
     func collect(_ declarations: [DeclSyntax], context: DeclarationContext) throws {
@@ -32,10 +42,25 @@ final class DeclarationCollector {
                         break
                     }
                 }
+            } else if indexOnly, let node = declaration.as(TypeAliasDeclSyntax.self) {
+                index(node, context: context)
             } else if !indexOnly && context.visible {
                 try collectMember(declaration, context: context)
             }
         }
+    }
+
+    /// Records a member typealias so that `Owner<Arguments>.Alias` can be
+    /// replaced with its definition. Generic typealiases are not recorded.
+    private func index(_ node: TypeAliasDeclSyntax, context: DeclarationContext) {
+        guard node.genericParameterClause == nil, context.owner.contains(".") else { return }
+        var owner = normalization.normalizedOwner(context.owner)
+        if owner.hasPrefix("Swift.") { owner.removeFirst("Swift.".count) }
+        let parameters = Set(context.generics.values).sorted { $0.count != $1.count ? $0.count < $1.count : $0 < $1 }
+        normalization.typealiases[owner + "." + normalization.text(node.name)] = TypealiasDefinition(
+            tokens: normalization.tokens(node.initializer.value, generics: context.generics, expandTypealiases: false),
+            parameters: parameters
+        )
     }
 
     private func collect(_ nominal: NominalDeclaration, node: DeclSyntax, parent: DeclarationContext) throws {

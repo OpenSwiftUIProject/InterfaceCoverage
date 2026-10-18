@@ -45,11 +45,7 @@ struct InterfaceScannerTests {
     }
 
     private func compare(_ reference: String, _ candidate: String) throws -> CoverageReport {
-        let scanner = InterfaceScanner()
-        return try .compare(
-            reference: scanner.scan([input(reference)]),
-            candidate: scanner.scan([input(candidate, module: "OpenSwiftUI")])
-        )
+        try InterfaceScanner().compare(reference: [input(reference)], candidate: [input(candidate, module: "OpenSwiftUI")])
     }
 
     @Test func moduleAliasesBodiesAndLocalParameterNames() throws {
@@ -187,6 +183,47 @@ struct InterfaceScannerTests {
         #expect(signatures.contains("typealias Body = @_opaqueReturnTypeOf(_, 0) __<T0>"))
         #expect(signatures.contains("var handler: () -> Void { get set }"))
         #expect(signatures.contains("infix operator <>: AdditionPrecedence"))
+    }
+
+    @Test func sharedMemberTypealiasesAreExpanded() throws {
+        let result = try compare(
+            """
+            public struct Key { public typealias Value = Swift.Int? }
+            extension SwiftUI.Key { public static func reduce(value: inout SwiftUI.Key.Value) }
+            public struct Just<Output> {
+              public typealias Failure = Swift.Never
+              public typealias Pair = (Output, SwiftUI.Just<Output>.Failure)
+              public func first() -> SwiftUI.Just<Output>.Pair
+              public func swapped<T>(_ value: SwiftUI.Just<T>.Pair) -> SwiftUI.Just<(Output, T)>.Failure
+            }
+            public struct Angle { public typealias AnimatableData = Swift.Double; public var animatableData: Swift.Double }
+            public struct Stand { public typealias Value = Swift.Int }
+            public func use(_ value: SwiftUI.Stand.Value)
+            public struct Wrapper<T> {}
+            public func wrap(_ value: SwiftUI.Wrapper<SwiftUI.Key.Value>)
+            """,
+            """
+            public struct Key { public typealias Value = Swift.Optional<Swift.Int> }
+            extension OpenSwiftUI.Key { public static func reduce(value: inout Swift.Int?) }
+            public struct Just<Output> {
+              public typealias Failure = Swift.Never
+              public typealias Pair = (Output, Swift.Never)
+              public func first() -> (Output, Swift.Never)
+              public func swapped<T>(_ value: (T, Swift.Never)) -> Swift.Never
+            }
+            public struct Angle { public typealias AnimatableData = Swift.Double; public var animatableData: OpenSwiftUI.Angle.AnimatableData }
+            public struct Stand { public struct Value {} }
+            public func use(_ value: OpenSwiftUI.Stand.Value)
+            public struct Wrapper<T> {}
+            public func wrap(_ value: OpenSwiftUI.Wrapper<Swift.Int?>)
+            """
+        )
+        // Each side expands `Key.Value` with its own definition. `Stand.Value`
+        // is a typealias on one side only, so it is not expanded.
+        #expect(result.missing.map(\.name) == ["Value", "Value"])
+        #expect(result.matched.contains { $0.name == "reduce" })
+        #expect(result.matched.contains { $0.name == "use" })
+        #expect(result.matched.contains { $0.name == "wrap" })
     }
 
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {

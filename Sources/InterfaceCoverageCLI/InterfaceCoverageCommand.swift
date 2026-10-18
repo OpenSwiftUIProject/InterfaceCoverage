@@ -125,9 +125,7 @@ struct CompareInterfaces: ParsableCommand {
             options.moduleAliases[parts[0]] = parts[1]
         }
         let scanner = InterfaceScanner(options: options)
-        let report = try CoverageReport.compare(
-            reference: scanner.scan(references), candidate: scanner.scan(candidates)
-        )
+        let report = try scanner.compare(reference: references, candidate: candidates)
         if report.summary.reference == 0 {
             warnings.append("The reference contains no declarations in the selected scope. Coverage is undefined.")
         }
