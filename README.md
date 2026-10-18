@@ -146,7 +146,7 @@ names still follow the configured aliases and otherwise remain distinct.
 ## Local coverage site
 
 The `site` subcommand converts JSON reports into a static site. It includes a
-release-by-baseline matrix, project/target/module/profile filters, declaration
+release coverage chart, project/target/module/profile filters, declaration
 search, counts by kind, input metadata, and an HTML table for embedding. Each
 comparison group also has Markdown and SVG tables for README files.
 
@@ -162,7 +162,7 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory results/site
 Open `http://127.0.0.1:8765`. The generated directory can also be published to
 GitHub Pages without a build step. It has no remote fonts, runtime dependencies,
 or external requests. A local HTTP server is needed for declaration details;
-the version matrix itself can also be opened from `index.html` without a server.
+the chart itself can also be opened from `index.html` without a server.
 
 | Manifest field | Meaning |
 | --- | --- |
@@ -172,11 +172,18 @@ the version matrix itself can also be opened from `index.html` without a server.
 | `project`, `target`, `scope`, `profile` | Comparison group. Each group must use the same scan options. |
 | `version`, `baseline` | Matrix row and column. Each cell must be unique in its group. |
 | `report` | Path to an existing CLI JSON report. |
-| `notes` | Optional input limitations shown with the table and selected report. |
+| `notes` | Optional input limitations shown with the chart/table and selected report. |
 | `metadata` | Optional string-to-string provenance fields. These are shown in the report. |
 
-Manifest order controls project, filter, version, and baseline order. Labels come
-from the manifest; the generator does not infer a release from an interface.
+Manifest order controls project, filter, baseline, and table row order. The main
+page shows a line chart with one series per SDK baseline and a fixed 0–100% axis.
+Numeric release labels, including prereleases, sort from oldest to newest. Custom
+version labels keep their manifest order. Select a point to open its report, or
+select a legend item to isolate a baseline. Points support keyboard focus and
+activation. Missing reports leave gaps; empty references display `n/a` below the
+chart. The HTML embed and Markdown/SVG exports remain version tables.
+
+Labels come from the manifest; the generator does not infer a release from an interface.
 Record the actual candidate commit, build SDK, compiler, build flags, dependency
 versions, baseline SDK build, and tool revision when available. Use a distinct
 profile for each comparison rule or tool revision. Baseline SDKs are independent

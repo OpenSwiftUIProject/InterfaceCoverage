@@ -16,7 +16,9 @@
   const number = value => value.toLocaleString("en-US");
   const percent = count => count.reference ? `${(100 * count.matched / count.reference).toFixed(2)}%` : "n/a";
   const cache = new Map();
+  let groupRows = [];
   let rows = [];
+  let chartWidth = 0;
   let current = null;
   let documentData = null;
   let request = 0;
@@ -80,7 +82,181 @@
       filtered = filtered.filter(row => row[key] === state[key]);
     }
     choices("baseline", unique(filtered.map(row => row.baseline)), "All baselines");
+    groupRows = filtered;
     rows = filtered.filter(row => !state.baseline || row.baseline === state.baseline);
+  }
+
+  function versionOrder(versions) {
+    const parsed = versions.map(version => ({version, parts: /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([\da-z-]+(?:\.[\da-z-]+)*))?(?:\+[\da-z-]+(?:\.[\da-z-]+)*)?$/i.exec(version)}));
+    // Custom labels have no implied chronology. Keep their manifest order.
+    if (parsed.some(item => !item.parts)) return versions;
+    return parsed.sort((a, b) => {
+      for (let index = 1; index <= 3; index++) {
+        const difference = Number(a.parts[index] || 0) - Number(b.parts[index] || 0);
+        if (difference) return difference;
+      }
+      const left = a.parts[4]?.split(".") || [];
+      const right = b.parts[4]?.split(".") || [];
+      if (!left.length || !right.length) return right.length ? 1 : left.length ? -1 : 0;
+      for (let index = 0; index < Math.max(left.length, right.length); index++) {
+        if (left[index] === undefined) return -1;
+        if (right[index] === undefined) return 1;
+        if (left[index] === right[index]) continue;
+        const leftNumber = /^\d+$/.test(left[index]);
+        const rightNumber = /^\d+$/.test(right[index]);
+        if (leftNumber && rightNumber) return Number(left[index]) - Number(right[index]);
+        if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
+        return left[index] < right[index] ? -1 : 1;
+      }
+      return 0;
+    }).map(item => item.version);
+  }
+
+  function svgElement(tag, attributes = {}, text) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function chartReadout(record) {
+    if (!record || !$("chart-readout")) return;
+    $("chart-readout").replaceChildren(
+      element("strong", `${record.version} · ${record.baseline}`),
+      element("span", `${percent(record.summary)} · ${number(record.summary.matched)} / ${number(record.summary.reference)} declarations`)
+    );
+  }
+
+  function updateChartSelection() {
+    $("chart").querySelectorAll("[data-report]").forEach(point => {
+      point.setAttribute("aria-pressed", String(point.dataset.report === state.report));
+    });
+    chartReadout(rows.find(row => row.id === state.report));
+  }
+
+  function renderChart() {
+    const focused = document.activeElement?.closest("[data-report]")?.dataset.report;
+    const scrollLeft = $("chart-scroll")?.scrollLeft || 0;
+    const baselines = unique(groupRows.map(row => row.baseline));
+    const versions = versionOrder(unique(groupRows.map(row => row.version)));
+    const header = element("div", undefined, "chart-header");
+    const legend = element("div", undefined, "chart-legend");
+    legend.setAttribute("aria-label", "Chart baselines");
+    const readout = element("p", undefined, "chart-readout");
+    readout.id = "chart-readout";
+    readout.setAttribute("aria-live", "polite");
+    for (const [index, baseline] of baselines.entries()) {
+      const item = button(undefined, !state.baseline || state.baseline === baseline, () => {
+        state.baseline = state.baseline === baseline ? "" : baseline;
+        state.report = null;
+        state.kind = "";
+        render();
+        $("chart").querySelectorAll(".chart-legend button")[index].focus({preventScroll: true});
+      }, "chart-legend-item");
+      item.setAttribute("aria-label", `Show ${baseline}`);
+      item.style.setProperty("--series-color", `var(--series-${index % 6})`);
+      const swatch = svgElement("svg", {viewBox: "0 0 28 12", width: 28, height: 12, "aria-hidden": "true"});
+      swatch.append(svgElement("line", {x1: 1, y1: 6, x2: 27, y2: 6, "stroke-dasharray": ["none", "7 4", "2 4"][index % 3]}));
+      item.append(swatch, element("span", baseline));
+      legend.append(item);
+    }
+    header.append(legend, readout);
+    const scroll = element("div", undefined, "chart-scroll");
+    scroll.id = "chart-scroll";
+    const stage = element("div", undefined, "chart-stage");
+    stage.setAttribute("role", "group");
+    stage.setAttribute("aria-label", `${state.project} coverage by version`);
+    scroll.append(stage);
+    $("chart").replaceChildren(header, scroll);
+    chartWidth = $("chart").clientWidth;
+    const spacing = Math.max(72, ...versions.map(version => version.length * 7 + 20));
+    const labelPadding = Math.max(28, ...versions.map(version => version.length * 3.5 + 4));
+    const left = Math.max(56, labelPadding);
+    const width = Math.max(scroll.clientWidth, left + labelPadding + (versions.length - 1) * spacing);
+    const height = 292, right = width - labelPadding, top = 28, bottom = 238;
+    const x = index => versions.length === 1 ? (left + right) / 2 : left + index * (right - left) / (versions.length - 1);
+    const y = value => bottom - value / 100 * (bottom - top);
+    stage.style.width = `${width}px`;
+    stage.style.height = `${height}px`;
+    const svg = svgElement("svg", {viewBox: `0 0 ${width} ${height}`, width, height, role: "img", "aria-labelledby": "chart-svg-title chart-svg-description"});
+    svg.append(svgElement("title", {id: "chart-svg-title"}, `${state.project} interface coverage`),
+      svgElement("desc", {id: "chart-svg-description"}, "Coverage from 0 to 100 percent across candidate versions. Each line is an SDK baseline. Missing reports and empty references leave gaps. Use the data point buttons to open a report."));
+    for (let value = 0; value <= 100; value += 25) {
+      svg.append(svgElement("line", {x1: left, x2: right, y1: y(value), y2: y(value), class: "chart-grid"}),
+        svgElement("text", {x: left - 12, y: y(value) + 4, "text-anchor": "end", class: "chart-axis"}, `${value}%`));
+    }
+    versions.forEach((version, index) => {
+      svg.append(svgElement("text", {x: x(index), y: bottom + 28, "text-anchor": "middle", class: "chart-axis chart-version"}, version));
+    });
+    stage.append(svg);
+    const unavailable = element("div", undefined, "chart-unavailable");
+    const points = [];
+    function nearestPoint(event) {
+      const bounds = stage.getBoundingClientRect();
+      const pointerX = event.clientX - bounds.left, pointerY = event.clientY - bounds.top;
+      return points.reduce((nearest, point) => {
+        const distance = Math.hypot(point.x - pointerX, point.y - pointerY);
+        return !nearest || distance < nearest.distance ? {...point, distance} : nearest;
+      }, null);
+    }
+    for (const [index, baseline] of baselines.entries()) {
+      if (state.baseline && baseline !== state.baseline) continue;
+      const series = new Map(rows.filter(row => row.baseline === baseline).map(row => [row.version, row]));
+      let path = "", connected = false;
+      versions.forEach((version, versionIndex) => {
+        const record = series.get(version);
+        if (!record) { connected = false; return; }
+        const plottable = record.summary.reference > 0;
+        const label = `${version}, ${baseline}: ${percent(record.summary)}, ${record.summary.matched} of ${record.summary.reference}`;
+        const point = button(undefined, record.id === state.report, event => {
+          // Large hit areas can overlap. Pointer input selects the nearest mark;
+          // keyboard activation keeps the focused report.
+          const selected = plottable && event.detail ? nearestPoint(event) : {record, button: point};
+          selected.button.focus({preventScroll: true});
+          selectReport(selected.record);
+        }, plottable ? "chart-point" : "chart-unavailable-point");
+        point.dataset.report = record.id;
+        point.setAttribute("aria-label", label);
+        point.title = label;
+        point.style.setProperty("--series-color", `var(--series-${index % 6})`);
+        point.addEventListener("pointermove", event => chartReadout(plottable ? nearestPoint(event).record : record));
+        point.addEventListener("focus", () => chartReadout(record));
+        point.addEventListener("pointerleave", () => {
+          if (document.activeElement !== point) chartReadout(rows.find(row => row.id === state.report));
+        });
+        point.addEventListener("blur", () => chartReadout(rows.find(row => row.id === state.report)));
+        if (!plottable) {
+          connected = false;
+          point.textContent = `${version} / ${baseline}: n/a`;
+          unavailable.append(point);
+          return;
+        }
+        const pointX = x(versionIndex), pointY = y(100 * record.summary.matched / record.summary.reference);
+        points.push({record, button: point, x: pointX, y: pointY});
+        path += `${connected ? "L" : "M"} ${pointX} ${pointY} `;
+        connected = true;
+        point.style.left = `${pointX}px`;
+        point.style.top = `${pointY}px`;
+        point.append(element("span"));
+        stage.append(point);
+      });
+      svg.append(svgElement("path", {d: path.trim(), class: "chart-series", stroke: `var(--series-${index % 6})`, "stroke-dasharray": ["none", "7 4", "2 4"][index % 3]}));
+    }
+    if (unavailable.childElementCount) {
+      unavailable.prepend(element("p", "Not plotted: these references contain no declarations.", "caption"));
+      $("chart").append(unavailable);
+    }
+    scroll.scrollLeft = scrollLeft;
+    updateChartSelection();
+    if (focused) Array.from(stage.querySelectorAll("[data-report]")).find(point => point.dataset.report === focused)?.focus({preventScroll: true});
+  }
+
+  function renderOverview() {
+    $("matrix").hidden = !embedded;
+    $("chart").hidden = embedded;
+    if (embedded) renderMatrix();
+    else renderChart();
+    $("matrix-notes").textContent = unique(rows.flatMap(row => [...row.notes, ...row.warnings])).join(" ");
   }
 
   function renderMatrix() {
@@ -125,7 +301,6 @@
       }
     }
     $("matrix").replaceChildren(table);
-    $("matrix-notes").textContent = unique(rows.flatMap(row => [...row.notes, ...row.warnings])).join(" ");
     if (embedded) {
       $("matrix-title").textContent = `${state.project} interface coverage`;
       $("matrix-description").textContent = `${state.target} · ${state.scope} · ${state.profile}`;
@@ -137,7 +312,7 @@
     renderFilters();
     const selected = rows.find(row => row.id === state.report) || rows[0];
     state.report = selected.id;
-    renderMatrix();
+    renderOverview();
     if (!embedded) selectReport(selected, true);
     saveURL();
   }
@@ -175,7 +350,7 @@
     documentData = null;
     state.page = 0;
     if (!preserveFilters && changed) state.kind = "";
-    renderMatrix();
+    updateChartSelection();
     renderSummary(record);
     $("entries").replaceChildren();
     $("metadata").replaceChildren();
@@ -204,7 +379,7 @@
     } catch (error) {
       if (ticket !== request) return;
       $("load-state").textContent = location.protocol === "file:"
-        ? "Serve this directory with a local HTTP server to load declaration details. The version table is available offline."
+        ? "Serve this directory with a local HTTP server to load declaration details. The coverage chart is available offline."
         : `Could not load declarations: ${error.message}. Select the result again to retry.`;
       $("load-state").classList.add("error");
     } finally {
@@ -312,4 +487,9 @@
     }
   });
   render();
+  if (!embedded) {
+    new ResizeObserver(() => {
+      if ($("chart").clientWidth !== chartWidth) renderChart();
+    }).observe($("chart"));
+  }
 })();
