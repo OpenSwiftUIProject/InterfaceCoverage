@@ -187,7 +187,11 @@ Manifest order controls project, filter, baseline, and table row order. The main
 page shows a grouped bar chart with a fixed 0–100% axis. Each group is a
 candidate version, and each bar in a group is an SDK baseline. Numeric release
 labels, including prereleases, sort from oldest to newest. Custom version labels
-keep their manifest order. Select a bar to open its report, or select a legend
+keep their manifest order. The chart and the Markdown/SVG tables show the
+highest patch version of each minor version, for example 0.23.1 and not 0.23.0.
+A selected earlier patch version, for example from a release notes link, is
+shown too, and changes are measured from the previous shown version. Summaries
+and reports include every version. Select a bar to open its report, or select a legend
 item to isolate a baseline. About four versions fill the visible width, the
 percentage axis stays in place while the chart scrolls, and wide bars show their
 values. When one baseline is shown, each version shows the change in matched
@@ -208,12 +212,10 @@ python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py collect 
   --xcode /Applications/Xcode-16.4.0.app --xcode /Applications/Xcode-26.6.0.app
 ```
 
-Use `--all-releases` in place of `--release` to compare the published releases
-that include both XCFrameworks. It keeps only the highest patch version of each
-minor version, for example 0.23.1 and not 0.23.0. A release comes after its
-prereleases. `--release` uses the given versions as they are. Pass `--site-url`
-to make summary links absolute. Add `--include-manifest` with an earlier
-manifest to keep its reports for other projects in the same site.
+Use `--all-releases` in place of `--release` to compare every published release
+that includes both XCFrameworks. Pass `--site-url` to make summary links
+absolute. Add `--include-manifest` with an earlier manifest to keep its reports
+for other projects in the same site.
 
 The results for one release, target, and SDK form a cache entry: one report for
 each scope and a `cache.json` file. An entry is reused while its fingerprint

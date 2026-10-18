@@ -254,6 +254,24 @@ struct CoverageSiteTests {
         #expect(markdown.contains("| iOS 18.5 | [0.00%]("))
     }
 
+    @Test func tablesShowTheLatestPatchOfEachMinorVersion() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rows = try ["0.9.0", "0.10.0", "0.10.1"].map { version -> [String: Any] in
+            var row = try fixture(root)
+            row["version"] = version
+            return row
+        }
+        let output = try generate(root, rows: rows)
+        let tables = try FileManager.default.contentsOfDirectory(at: output.appendingPathComponent("tables"), includingPropertiesForKeys: nil)
+        let markdown = try String(contentsOf: #require(tables.first { $0.pathExtension == "md" }), encoding: .utf8)
+        #expect(markdown.contains("| 0.9.0 |"))
+        #expect(markdown.contains("| 0.10.1 |"))
+        #expect(!markdown.contains("| 0.10.0 |"))
+        // Summaries keep every version, so release notes of earlier patches can link to them.
+        #expect(FileManager.default.fileExists(atPath: output.appendingPathComponent("summary/example/0.10.0.json").path))
+    }
+
     @Test func rejectsInconsistentCounts() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

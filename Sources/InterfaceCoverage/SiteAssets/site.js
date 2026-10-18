@@ -45,6 +45,7 @@
   let groupRows = [];
   let rows = [];
   let chartWidth = 0;
+  let chartVersions = null;
   let current = null;
   let documentData = null;
   let request = 0;
@@ -163,10 +164,27 @@
     return node;
   }
 
-  // Compares a result with the previous version that has a result for the same baseline.
+  function minorVersion(version) {
+    const match = /^v?(\d+)\.(\d+)(?:\.\d+)?(?:-[\da-z.-]+)?(?:\+[\da-z.-]+)?$/i.exec(version);
+    return match ? `${match[1]}.${match[2]}` : null;
+  }
+
+  // The chart shows the highest patch version of each minor version, and the selected version.
+  // A summary link can select an earlier patch version, which is then shown too.
+  function displayedVersions() {
+    const versions = versionOrder(unique(groupRows.map(row => row.version)));
+    const selected = reports.find(row => row.id === state.report)?.version;
+    return versions.filter((version, index) => {
+      const minor = minorVersion(version);
+      return version === selected || !minor || versions.slice(index + 1).every(other => minorVersion(other) !== minor);
+    });
+  }
+
+  // Compares a result with the previous shown version that has a result for the same baseline.
   function change(record) {
     if (!record.summary.reference) return null;
-    const series = rows.filter(row => row.baseline === record.baseline && row.summary.reference > 0);
+    const shown = displayedVersions();
+    const series = rows.filter(row => row.baseline === record.baseline && row.summary.reference > 0 && shown.includes(row.version));
     const order = versionOrder(unique(series.map(row => row.version)));
     const index = order.indexOf(record.version);
     const previous = index > 0 ? series.find(row => row.version === order[index - 1]) : null;
@@ -189,6 +207,11 @@
   }
 
   function updateChartSelection() {
+    // Selecting another bar can hide an earlier patch version that was shown for the selection.
+    if (!embedded && chartVersions !== null && displayedVersions().join("|") !== chartVersions) {
+      renderChart();
+      return;
+    }
     $("chart").querySelectorAll("[data-report]").forEach(point => {
       point.setAttribute("aria-pressed", String(point.dataset.report === state.report));
     });
@@ -209,7 +232,8 @@
     const focused = document.activeElement?.closest("[data-report]")?.dataset.report;
     const scrollLeft = $("chart-scroll")?.scrollLeft || 0;
     const baselines = unique(groupRows.map(row => row.baseline));
-    const versions = versionOrder(unique(groupRows.map(row => row.version)));
+    const versions = displayedVersions();
+    chartVersions = versions.join("|");
     const visible = baselines.filter(baseline => !state.baseline || baseline === state.baseline);
     // With one baseline, each version also shows the change from the previous version.
     const showChanges = visible.length === 1;
@@ -351,7 +375,7 @@
       head.append(th);
     }
     const body = table.createTBody();
-    for (const version of unique(rows.map(row => row.version))) {
+    for (const version of displayedVersions().filter(version => rows.some(row => row.version === version))) {
       const tr = body.insertRow();
       const th = element("th", version);
       th.scope = "row";

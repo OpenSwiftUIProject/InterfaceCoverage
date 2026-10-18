@@ -120,8 +120,11 @@ public enum CoverageSite {
         files["assets/site.js"] = Data(script.utf8)
         for group in ordered(records.map(\.group)) {
             let rows = records.filter { $0.group == group }
-            files["tables/\(group).md"] = Data(markdown(rows).utf8)
-            files["tables/\(group).svg"] = Data(svg(rows).utf8)
+            // Like the chart, tables show the highest patch version of each minor version.
+            let shown = Set(latestPatches(ordered(rows.map(\.version))))
+            let tableRows = rows.filter { shown.contains($0.version) }
+            files["tables/\(group).md"] = Data(markdown(tableRows).utf8)
+            files["tables/\(group).svg"] = Data(svg(tableRows).utf8)
             // A badge shows the latest version that has a result for each baseline.
             let versions = versionOrder(ordered(rows.map(\.version)))
             for baseline in ordered(rows.map(\.baseline)) {
@@ -174,6 +177,19 @@ public enum CoverageSite {
 
     /// Sorts numeric release labels, including prereleases, from oldest to newest.
     /// Other labels keep their manifest order. The site script uses the same rule.
+    /// Keeps the highest patch version of each minor version. Other labels are kept.
+    static func latestPatches(_ versions: [String]) -> [String] {
+        func minor(_ version: String) -> String? {
+            guard let match = version.wholeMatch(of: /^v?(\d+)\.(\d+)(?:\.\d+)?(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?$/) else { return nil }
+            return "\(match.1).\(match.2)"
+        }
+        let sorted = versionOrder(versions)
+        return sorted.enumerated().filter { index, version in
+            guard let key = minor(version) else { return true }
+            return !sorted[(index + 1)...].contains { minor($0) == key }
+        }.map(\.element)
+    }
+
     static func versionOrder(_ versions: [String]) -> [String] {
         let pattern = /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*))?(?:\+[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?$/
         var parsed: [(version: String, numbers: [Int], prerelease: [Substring])] = []
