@@ -81,6 +81,24 @@ struct CoverageSiteTests {
         #expect(throws: CoverageError.self) { try generate(root, rows: [row, other]) }
     }
 
+    @Test func rejectsDifferentRulesVersionsInOneProfile() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try fixture(root)
+        let path = root.appendingPathComponent("report.json")
+        var document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+        var options = try #require(document["options"] as? [String: Any])
+        options["rulesVersion"] = ScanOptions().rulesVersion
+        document["options"] = options
+        try JSONSerialization.data(withJSONObject: document).write(to: root.appendingPathComponent("current.json"))
+        var second = first
+        second["version"] = "2.0"
+        second["report"] = "current.json"
+        #expect(throws: CoverageError.self) { try generate(root, rows: [first, second]) }
+        second["profile"] = "Current rules"
+        _ = try generate(root, rows: [first, second])
+    }
+
     @Test func emptyReferenceHasNoPercentage() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

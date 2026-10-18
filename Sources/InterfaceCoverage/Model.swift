@@ -29,6 +29,12 @@ public struct InterfaceInput: Sendable, Codable {
 }
 
 public struct ScanOptions: Sendable, Codable {
+    /// The version of the built-in matching rules. Increase it when a change
+    /// can produce different signatures for the same input.
+    public static let currentRulesVersion = 2
+
+    /// Reports from before this field was added use version 1.
+    public private(set) var rulesVersion = ScanOptions.currentRulesVersion
     public var moduleAliases: [String: String]
     public var ignoredNamespaces: [String]
     public var excludeUnderscored: Bool
@@ -36,7 +42,7 @@ public struct ScanOptions: Sendable, Codable {
     public var platform: String?
 
     private enum CodingKeys: String, CodingKey {
-        case moduleAliases, ignoredNamespaces, excludeUnderscored, includeSPI, platform
+        case rulesVersion, moduleAliases, ignoredNamespaces, excludeUnderscored, includeSPI, platform
     }
 
     public init(from decoder: Decoder) throws {
@@ -48,6 +54,7 @@ public struct ScanOptions: Sendable, Codable {
             includeSPI: try values.decode(Bool.self, forKey: .includeSPI),
             platform: try values.decodeIfPresent(String.self, forKey: .platform)
         )
+        rulesVersion = try values.decodeIfPresent(Int.self, forKey: .rulesVersion) ?? 1
     }
 
     public init(

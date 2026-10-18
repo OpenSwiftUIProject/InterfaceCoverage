@@ -138,7 +138,9 @@ interface-coverage \
 ```
 
 JSON includes the input module names and targets, scan options, warnings, and a
-versioned `coverage` object. Results and source locations are sorted for stable
+versioned `coverage` object. `options.rulesVersion` identifies the built-in
+matching rules. It increases when a tool change can produce different signatures
+for the same input. Reports without this field use version 1. Results and source locations are sorted for stable
 diffs. If the reference has no declarations, text coverage is `n/a` and the JSON
 count has no `percent` value. Extra declarations never increase coverage.
 New reports also record each input's SHA-256 and compiler header.
@@ -174,7 +176,7 @@ the chart itself can also be opened from `index.html` without a server.
 | `schemaVersion` | Manifest format version. Currently `1`. |
 | `title` | Optional site title. Defaults to `InterfaceCoverage`. |
 | `reports` | Nonempty list of comparison reports. |
-| `project`, `target`, `scope`, `profile` | Comparison group. Each group must use the same scan options. |
+| `project`, `target`, `scope`, `profile` | Comparison group. Each group must use the same scan options and rules version. |
 | `version`, `baseline` | Matrix row and column. Each cell must be unique in its group. |
 | `report` | Path to an existing CLI JSON report. |
 | `notes` | Optional input limitations shown with the chart/table and selected report. |
