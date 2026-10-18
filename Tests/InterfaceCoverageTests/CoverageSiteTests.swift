@@ -31,9 +31,16 @@ struct CoverageSiteTests {
                 "metadata": ["candidateCommit": "abc123"], "notes": ["A local snapshot."]]
     }
 
-    private func generate(_ root: URL, rows: [[String: Any]]) throws -> URL {
+    private func fixturePath(_ root: URL) throws -> URL {
+        _ = try fixture(root)
+        return root.appendingPathComponent("report.json")
+    }
+
+    private func generate(_ root: URL, rows: [[String: Any]], siteURL: String? = nil) throws -> URL {
         let manifest = root.appendingPathComponent("manifest.json")
-        try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "reports": rows]).write(to: manifest)
+        var specification: [String: Any] = ["schemaVersion": 1, "reports": rows]
+        specification["siteURL"] = siteURL
+        try JSONSerialization.data(withJSONObject: specification).write(to: manifest)
         let output = root.appendingPathComponent("site")
         try CoverageSite.generate(manifest: manifest, output: output)
         return output
@@ -201,6 +208,43 @@ struct CoverageSiteTests {
             let files = try FileManager.default.contentsOfDirectory(atPath: output.appendingPathComponent(directory).path)
             #expect(files.count == (directory == "reports" ? 1 : 2), "\(directory): \(files)")
         }
+    }
+
+    @Test func badgesUseTheLatestVersionAndSummariesDescribeEachVersion() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: try fixturePath(root))) as? [String: Any])
+        var coverage = try #require(document["coverage"] as? [String: Any])
+        let counts = ["reference": 1, "matched": 1, "missing": 0, "extra": 0]
+        coverage["summary"] = counts
+        coverage["byKind"] = [["kind": "struct", "count": counts]]
+        coverage["matched"] = coverage["missing"]
+        coverage["missing"] = []
+        document["coverage"] = coverage
+        try JSONSerialization.data(withJSONObject: document).write(to: root.appendingPathComponent("full.json"))
+        var newer = try fixture(root)
+        newer["version"] = "0.10.0"
+        newer["report"] = "full.json"
+        newer["baseline"] = "iOS 18.5"
+        var older = try fixture(root)
+        older["version"] = "0.9.0"
+        older["baseline"] = "iOS 18.5"
+        let output = try generate(root, rows: [newer, older], siteURL: "https://example.com/coverage/")
+        let badgeURL = output.appendingPathComponent("badges/example-macos-ios-18-5-example-default.json")
+        let badge = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: badgeURL)) as? [String: Any])
+        #expect(badge["schemaVersion"] as? Int == 1)
+        #expect(badge["label"] as? String == "API coverage (iOS 18.5)")
+        #expect(badge["message"] as? String == "100.00%")
+        let summaryURL = output.appendingPathComponent("summary/example/0.9.0.json")
+        let summary = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: summaryURL)) as? [String: Any])
+        let results = try #require(summary["results"] as? [[String: Any]])
+        #expect(results.count == 1)
+        #expect(results.first?["matched"] as? Int == 0)
+        let link = try #require(results.first?["url"] as? String)
+        #expect(link.hasPrefix("https://example.com/coverage/index.html?"))
+        #expect(link.contains("version=0.9.0"))
+        let markdown = try String(contentsOf: output.appendingPathComponent("summary/example/0.9.0.md"), encoding: .utf8)
+        #expect(markdown.contains("| iOS 18.5 | [0.00%]("))
     }
 
     @Test func rejectsInconsistentCounts() throws {

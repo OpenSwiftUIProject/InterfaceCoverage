@@ -122,6 +122,31 @@ public enum CoverageSite {
             let rows = records.filter { $0.group == group }
             files["tables/\(group).md"] = Data(markdown(rows).utf8)
             files["tables/\(group).svg"] = Data(svg(rows).utf8)
+            // A badge shows the latest version that has a result for each baseline.
+            let versions = versionOrder(ordered(rows.map(\.version)))
+            for baseline in ordered(rows.map(\.baseline)) {
+                let results = rows.filter { $0.baseline == baseline && $0.summary.reference > 0 }
+                guard let latest = versions.reversed().lazy.compactMap({ version in results.first { $0.version == version } }).first else { continue }
+                let name = [latest.project, latest.target, baseline, latest.scope, latest.profile].map(slug).joined(separator: "-")
+                files["badges/\(name).json"] = try encoder.encode(Badge(
+                    label: "API coverage (\(baseline))", message: percentage(latest.summary)
+                ))
+            }
+        }
+        for project in ordered(records.map(\.project)) {
+            for version in ordered(records.filter { $0.project == project }.map(\.version)) {
+                let rows = records.filter { $0.project == project && $0.version == version }
+                let summary = VersionSummary(project: project, version: version, results: rows.map { row in
+                    VersionSummary.Result(
+                        target: row.target, baseline: row.baseline, scope: row.scope, profile: row.profile,
+                        matched: row.summary.matched, reference: row.summary.reference, percent: row.summary.percent,
+                        url: link(to: row, siteURL: specification.siteURL)
+                    )
+                })
+                let path = "summary/\(slug(project))/\(fileName(version))"
+                files["\(path).json"] = try encoder.encode(summary)
+                files["\(path).md"] = Data(summaryMarkdown(summary).utf8)
+            }
         }
         // Validate every input and prepare every output before writing any files.
         try manager.createDirectory(at: output, withIntermediateDirectories: true)
@@ -133,12 +158,86 @@ public enum CoverageSite {
         try "1\n".write(to: marker, atomically: true, encoding: .utf8)
         // Report and table names are content hashes. The catalog no longer refers
         // to files from earlier runs, so remove them.
-        for directory in ["reports", "pools", "tables"] {
+        for directory in ["reports", "pools", "tables", "badges", "summary"] {
             let url = output.appendingPathComponent(directory)
-            for name in (try? manager.contentsOfDirectory(atPath: url.path)) ?? [] where files["\(directory)/\(name)"] == nil {
-                try manager.removeItem(at: url.appendingPathComponent(name))
+            for name in (try? manager.subpathsOfDirectory(atPath: url.path)) ?? [] {
+                var isDirectory: ObjCBool = false
+                let item = url.appendingPathComponent(name)
+                guard manager.fileExists(atPath: item.path, isDirectory: &isDirectory), !isDirectory.boolValue,
+                      files["\(directory)/\(name)"] == nil else { continue }
+                try manager.removeItem(at: item)
             }
         }
+    }
+
+    /// Sorts numeric release labels, including prereleases, from oldest to newest.
+    /// Other labels keep their manifest order. The site script uses the same rule.
+    static func versionOrder(_ versions: [String]) -> [String] {
+        let pattern = /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*))?(?:\+[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?$/
+        var parsed: [(version: String, numbers: [Int], prerelease: [Substring])] = []
+        for version in versions {
+            guard let match = version.wholeMatch(of: pattern) else { return versions }
+            let numbers = [match.1, match.2, match.3 ?? "0"].map { Int($0) ?? 0 }
+            parsed.append((version, numbers, match.4?.split(separator: ".") ?? []))
+        }
+        return parsed.sorted { left, right in
+            if left.numbers != right.numbers { return left.numbers.lexicographicallyPrecedes(right.numbers) }
+            // A release sorts after its prereleases.
+            if left.prerelease.isEmpty || right.prerelease.isEmpty { return !left.prerelease.isEmpty && right.prerelease.isEmpty }
+            for (a, b) in zip(left.prerelease, right.prerelease) where a != b {
+                switch (Int(a), Int(b)) {
+                case let (x?, y?): return x < y
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return a < b
+                }
+            }
+            return left.prerelease.count < right.prerelease.count
+        }.map(\.version)
+    }
+
+    private static func slug(_ text: String) -> String {
+        text.lowercased().split { !($0.isLetter || $0.isNumber) }.joined(separator: "-")
+    }
+
+    private static func fileName(_ text: String) -> String {
+        String(text.map { $0.isLetter || $0.isNumber || "._-".contains($0) ? $0 : "-" })
+    }
+
+    /// Links to a version and baseline with stable query parameters. Report IDs
+    /// change when a report is generated again.
+    private static func link(to row: SiteRecord, siteURL: String?) -> String {
+        var components = URLComponents()
+        components.queryItems = [
+            ("project", row.project), ("target", row.target), ("scope", row.scope), ("profile", row.profile),
+            ("baseline", row.baseline), ("version", row.version),
+        ].map { URLQueryItem(name: $0, value: $1) }
+        let query = components.percentEncodedQuery ?? ""
+        guard let siteURL else { return "../../index.html?\(query)" }
+        return (siteURL.hasSuffix("/") ? siteURL : siteURL + "/") + "index.html?\(query)"
+    }
+
+    private static func summaryMarkdown(_ summary: VersionSummary) -> String {
+        func cell(_ text: String) -> String {
+            text.replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: " ")
+        }
+        var result = "### Interface coverage\n\n\(cell(summary.project)) \(cell(summary.version)). Declaration signatures compared with SDK interfaces. Matching declarations can include stubs.\n"
+        for profile in ordered(summary.results.map(\.profile)) {
+            let results = summary.results.filter { $0.profile == profile }
+            let scopes = ordered(results.map(\.scope))
+            result += profile == "Default" ? "\n" : "\n\(cell(profile)):\n\n"
+            result += "| Baseline | " + scopes.map(cell).joined(separator: " | ") + " |\n"
+            result += "| --- | " + scopes.map { _ in "---:" }.joined(separator: " | ") + " |\n"
+            for baseline in ordered(results.map(\.baseline)) {
+                let values = scopes.map { scope -> String in
+                    guard let item = results.first(where: { $0.baseline == baseline && $0.scope == scope }) else { return "—" }
+                    let value = item.percent.map { String(format: "%.2f%%", $0) } ?? "n/a"
+                    return "[\(value)](\(item.url))"
+                }
+                result += "| \(cell(baseline)) | " + values.joined(separator: " | ") + " |\n"
+            }
+        }
+        return result
     }
 
     private static func asset(_ name: String) throws -> String {
@@ -236,6 +335,8 @@ public enum CoverageSite {
 private struct SiteManifest: Decodable {
     let schemaVersion: Int
     let title: String?
+    /// The published site address. Summary links use it when present.
+    let siteURL: String?
     let reports: [SiteReportInput]
 }
 
@@ -278,6 +379,33 @@ private struct SiteRecord: Encodable {
     let nearMisses: Int
     let warnings: [String]
     let report: String
+}
+
+/// A shields.io endpoint badge.
+private struct Badge: Encodable {
+    let schemaVersion = 1
+    let label: String
+    let message: String
+    let color = "blue"
+}
+
+private struct VersionSummary: Encodable {
+    struct Result: Encodable {
+        let target: String
+        let baseline: String
+        let scope: String
+        let profile: String
+        let matched: Int
+        let reference: Int
+        let percent: Double?
+        let url: String
+    }
+
+    let schemaVersion = 1
+    let project: String
+    let version: String
+    let note = "Declaration signatures compared with SDK interfaces. Matching declarations can include stubs."
+    let results: [Result]
 }
 
 private struct SitePool: Encodable {

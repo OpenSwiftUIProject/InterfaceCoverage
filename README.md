@@ -175,6 +175,7 @@ the chart itself can also be opened from `index.html` without a server.
 | --- | --- |
 | `schemaVersion` | Manifest format version. Currently `1`. |
 | `title` | Optional site title. Defaults to `InterfaceCoverage`. |
+| `siteURL` | Optional published site address, used for absolute links in summaries. |
 | `reports` | Nonempty list of comparison reports. |
 | `project`, `target`, `scope`, `profile` | Comparison group. Each group must use the same scan options and rules version. |
 | `version`, `baseline` | Matrix row and column. Each cell must be unique in its group. |
@@ -234,10 +235,32 @@ use. It does not accept input reports inside its output.
 Select **Embed table** to copy an iframe for the current filters or download the
 group's complete Markdown/SVG table. Query parameters retain project, target,
 scope, profile, baseline, selected report, declaration status, kind, and search.
+A `version` parameter selects a version when no report is selected.
 The embedding page uses the same catalog and counts as the full report.
 
 The `site` command does not collect releases, build candidates, schedule runs, or
 deploy a site. It prepares the same output for local viewing and later CI publication.
+
+## Badges and release summaries
+
+The site also writes static files for other pages to use:
+
+- `badges/<project>-<target>-<baseline>-<scope>-<profile>.json` is a
+  [shields.io endpoint](https://shields.io/badges/endpoint-badge) for the latest
+  version with a result. Each name part is lowercase, and other characters
+  become `-`, for example
+  `badges/openswiftui-ios-ios-18-5-swiftui-swiftuicore-default.json`.
+- `summary/<project>/<version>.json` lists the coverage of one version for each
+  target, baseline, scope, and profile. `summary/<project>/<version>.md` shows
+  the same results as Markdown tables for release notes.
+
+Summary links use `version` and `baseline` query parameters, which stay valid
+when reports are generated again. Set `siteURL` in the manifest to make these
+links absolute.
+
+```text
+https://img.shields.io/endpoint?url=https://openswiftuiproject.github.io/InterfaceCoverage/badges/openswiftui-ios-ios-18-5-swiftui-swiftuicore-default.json
+```
 
 ## Comparison flags
 

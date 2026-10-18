@@ -8,7 +8,7 @@
   const state = {
     project: query.get("project"), target: query.get("target"), scope: query.get("scope"),
     profile: query.get("profile"), baseline: query.get("baseline") || "",
-    report: query.get("report"), status: query.get("status") || "missing",
+    report: query.get("report"), version: query.get("version"), status: query.get("status") || "missing",
     search: query.get("q") || "", kind: query.get("kind") || "", page: 0,
   };
   const $ = id => document.getElementById(id);
@@ -308,7 +308,9 @@
 
   function render() {
     renderFilters();
-    const selected = rows.find(row => row.id === state.report) || rows[0];
+    // Summary links name a version, because report IDs change when reports are generated again.
+    const selected = rows.find(row => row.id === state.report) || rows.find(row => row.version === state.version) || rows[0];
+    state.version = null;
     state.report = selected.id;
     renderOverview();
     if (!embedded) selectReport(selected, true);
