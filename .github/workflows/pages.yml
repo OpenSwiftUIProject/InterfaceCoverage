@@ -4,8 +4,11 @@ name: Pages
 # GitHub Pages. An OpenSwiftUI release sends `openswiftui-release`, and the new
 # coverage table is then added to that release's notes.
 #
-# The build job runs on a self-hosted runner, so this workflow has no
-# pull_request trigger. Code from forks never runs on that runner.
+# All jobs run on GitHub-hosted runners. Each baseline Xcode compares the
+# releases on its own runner, so SDK interfaces are read where they are
+# installed and are never stored. Cache entries for each release, target, and
+# SDK are stored as OCI artifacts in GHCR and reused while their fingerprint
+# matches.
 
 on:
   push:
@@ -28,51 +31,117 @@ concurrency:
 
 env:
   SITE_URL: https://openswiftuiproject.github.io/InterfaceCoverage/
+  OCI_REPOSITORY: ghcr.io/openswiftuiproject/interface-coverage-cache
 
 jobs:
-  build:
-    name: Build the coverage site
-    # Xcode 16.4 supplies the iOS 18.5 and macOS 15.5 baselines.
-    runs-on: [self-hosted, macOS, macos-26]
-    timeout-minutes: 120
+  tool:
+    name: Build the tool
+    runs-on: macos-26
     env:
-      DEVELOPER_DIR: /Applications/Xcode-26.6.0.app/Contents/Developer
-      BASELINE_XCODES: /Applications/Xcode-16.4.0.app /Applications/Xcode-26.6.0.app /Applications/Xcode-27.0.0.app
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check the baseline Xcode installations
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: tool-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**') }}
+          restore-keys: tool-${{ runner.os }}-
+      - name: Build
+        run: swift build -c release
+      # The site command reads its assets from the resource bundle next to the binary.
+      - name: Package the tool
+        run: tar -czf "$RUNNER_TEMP/tool.tar.gz" -C .build/release interface-coverage InterfaceCoverage_InterfaceCoverage.bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tool
+          path: ${{ runner.temp }}/tool.tar.gz
+          retention-days: 1
+
+  compare:
+    name: Compare with Xcode ${{ matrix.xcode }}
+    needs: tool
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Xcode 16.4 supplies the iOS 18.5 and macOS 15.5 baselines.
+          - runner: macos-15
+            xcode: '16.4'
+          - runner: macos-26
+            xcode: '26.6'
+          - runner: xcode-27
+            xcode: '27.0'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: tool
+          path: ${{ runner.temp }}
+      - name: Unpack the tool
         run: |
-          for xcode in $BASELINE_XCODES; do
-            if [[ ! -d "$xcode" ]]; then
-              echo "::error::$xcode is not installed on this runner."
-              exit 1
-            fi
-          done
-      # Downloads, input interfaces, reports, and the tool build stay on the runner
-      # between runs. A report is generated again only when its inputs change.
-      - name: Build the tool
-        run: |
-          work="$RUNNER_TOOL_CACHE/org.openswiftuiproject.openswiftui.interface-coverage"
-          echo "WORK=$work" >> "$GITHUB_ENV"
-          swift build -c release --scratch-path "$work/build"
-      - name: Compare releases and generate the site
+          mkdir -p "$RUNNER_TEMP/tool"
+          tar -xzf "$RUNNER_TEMP/tool.tar.gz" -C "$RUNNER_TEMP/tool"
+      - uses: oras-project/setup-oras@v1
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ github.token }}" | oras login ghcr.io --username "${{ github.actor }}" --password-stdin
+      - name: Compare releases
         env:
           GH_TOKEN: ${{ github.token }}
+          XCODE: /Applications/Xcode_${{ matrix.xcode }}.app
         run: |
-          xcodes=()
-          for xcode in $BASELINE_XCODES; do xcodes+=(--xcode "$xcode"); done
-          python3 Scripts/collect_openswiftui_releases.py --all-releases "${xcodes[@]}" \
-            --work "$WORK" --site "$RUNNER_TEMP/site" --site-url "$SITE_URL" \
-            --tool "$WORK/build/release/interface-coverage"
+          python3 Scripts/collect_openswiftui_releases.py collect --all-releases --xcode "$XCODE" \
+            --work "$RUNNER_TEMP/work" --tool "$RUNNER_TEMP/tool/interface-coverage" \
+            --oci-repository "$OCI_REPOSITORY" --publish-oci-cache --no-site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports-xcode-${{ matrix.xcode }}
+          path: |
+            ${{ runner.temp }}/work/records.json
+            ${{ runner.temp }}/work/reports
+          retention-days: 1
+
+  site:
+    name: Build the coverage site
+    needs: compare
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: tool
+          path: ${{ runner.temp }}
+      - name: Unpack the tool
+        run: |
+          mkdir -p "$RUNNER_TEMP/tool"
+          tar -xzf "$RUNNER_TEMP/tool.tar.gz" -C "$RUNNER_TEMP/tool"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: reports-*
+          path: ${{ runner.temp }}/reports
+      - name: Generate the site
+        run: |
+          inputs=()
+          for directory in "$RUNNER_TEMP"/reports/*/; do inputs+=(--input "$directory"); done
+          python3 Scripts/collect_openswiftui_releases.py assemble "${inputs[@]}" \
+            --work "$RUNNER_TEMP/work" --site "$RUNNER_TEMP/site" --site-url "$SITE_URL" \
+            --tool "$RUNNER_TEMP/tool/interface-coverage"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/site
 
   deploy:
     name: Deploy to GitHub Pages
-    needs: build
+    needs: site
     runs-on: ubuntu-latest
     permissions:
       pages: write

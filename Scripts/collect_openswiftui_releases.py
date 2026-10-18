@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Compare OpenSwiftUI release interfaces with SDK interfaces and build a site.
 
-For each release, the script downloads the OpenSwiftUI and OpenSwiftUICore
-XCFrameworks with `gh`, verifies their published SHA-256 digests, and compares
-their public interfaces with the SwiftUI and SwiftUICore interfaces of each
-Xcode. It writes one JSON report per comparison, a site manifest, and the site.
+`collect` compares the OpenSwiftUI and OpenSwiftUICore XCFrameworks of each
+release with the SwiftUI and SwiftUICore interfaces of each Xcode. It writes the
+reports and `records.json` to the work directory, and builds the site unless
+`--no-site` is given. `assemble` builds one site from the work directories of
+several `collect` runs, for example one run for each Xcode.
 
-Downloads are cached in the work directory. Build the tool first:
+The results for one release, target, and SDK form a cache entry. An entry is
+reused when its fingerprint matches: the tool sources, the release assets, and
+the SDK interfaces are unchanged. Entries stay in the work directory and can
+also be stored in an OCI registry, such as GHCR, with `oras`. Release assets are
+downloaded with `gh` only when an entry must be generated.
+
+Build the tool first:
 
     swift build --package-path Tools/InterfaceCoverage -c release
 """
@@ -17,11 +24,16 @@ import json
 import pathlib
 import plistlib
 import re
+import shutil
 import subprocess
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 
 TOOL = pathlib.Path(__file__).resolve().parent.parent
+# Increase when the cache entry layout or the comparison commands change.
+CACHE_VERSION = 1
+ARTIFACT_TYPE = 'application/vnd.openswiftuiproject.interface-coverage.cache.v1'
 MODULES = ['SwiftUI', 'SwiftUICore']
 # The combined scope comes first, so summaries and the site show it first.
 SCOPES = [('SwiftUI + SwiftUICore', MODULES), ('SwiftUI', ['SwiftUI']), ('SwiftUICore', ['SwiftUICore'])]
@@ -41,6 +53,49 @@ def sha256(path):
 
 def gh(*arguments):
     return subprocess.check_output(['gh', *arguments], text=True)
+
+
+def slug(text):
+    return '-'.join(re.findall('[a-z0-9]+', text.lower()))
+
+
+def source_fingerprint():
+    """Identifies the tool sources, so equal sources share cache entries on every runner."""
+    digest = hashlib.sha256()
+    files = [TOOL / 'Package.swift', TOOL / 'Package.resolved', *sorted((TOOL / 'Sources').rglob('*'))]
+    for path in files:
+        if path.is_file() and path.name != '.DS_Store':
+            digest.update(str(path.relative_to(TOOL)).encode() + b'\0' + path.read_bytes() + b'\0')
+    return digest.hexdigest()
+
+
+class OCICache:
+    """Stores cache entries as OCI artifacts. A local directory uses an OCI image layout."""
+
+    def __init__(self, repository, publish):
+        self.layout = not re.match(r'^[a-z0-9.-]+(:[0-9]+)?/', repository)
+        self.repository = str(pathlib.Path(repository).resolve()) if self.layout else repository
+        self.publish = publish
+
+    def _oras(self, command, tag, *arguments, cwd=None):
+        options = ['--oci-layout'] if self.layout else []
+        return subprocess.run(['oras', *command, *options, f'{self.repository}:{tag}', *arguments],
+                              cwd=cwd, capture_output=True, text=True)
+
+    def pull(self, tag, directory):
+        return self._oras(['pull'], tag, '--output', str(directory)).returncode == 0
+
+    def exists(self, tag):
+        return self._oras(['manifest', 'fetch'], tag).returncode == 0
+
+    def push(self, tag, directory, files):
+        # Entries are immutable. An existing reference is never replaced.
+        if not self.publish or self.exists(tag):
+            return
+        result = self._oras(['push'], tag, '--artifact-type', ARTIFACT_TYPE, *files, cwd=directory)
+        if result.returncode != 0:
+            raise SystemExit(f'oras push failed for {tag}:\n{result.stderr}')
+        print(f'Published {self.repository}:{tag}', flush=True)
 
 
 def release_metadata(repository, version, directory, refresh=False):
@@ -67,6 +122,12 @@ def published_releases(repository, work):
         if all(name in names for name in wanted):
             result.append(version)
     return result
+
+
+def asset_digests(repository, version, work):
+    release = release_metadata(repository, version, work / 'releases' / version)
+    digests = {asset['name']: asset['digest'] for asset in release['assets']}
+    return [digests[f'Open{module}.xcframework.zip'] for module in MODULES]
 
 
 def fetch_release(repository, version, directory):
@@ -141,87 +202,168 @@ def release_inputs(repository, version, target, work):
     return candidates, metadata
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    releases = parser.add_mutually_exclusive_group(required=True)
-    releases.add_argument('--release', action='append', help='Release tag. Repeat for more releases.')
-    releases.add_argument('--all-releases', action='store_true',
-                          help='Use every published release that includes both XCFrameworks.')
-    parser.add_argument('--xcode', action='append', required=True, type=pathlib.Path,
-                        help='Xcode application that supplies the baseline SDK. Repeat for more baselines.')
-    parser.add_argument('--target', action='append', choices=sorted(TARGETS), help='Target. The default is iOS and macOS.')
-    parser.add_argument('--repository', default='OpenSwiftUIProject/OpenSwiftUI')
-    parser.add_argument('--work', type=pathlib.Path, default=TOOL / '.preview', help='Directory for downloads, inputs, and reports.')
-    parser.add_argument('--site', type=pathlib.Path, help='Site output directory. The default is WORK/site.')
-    parser.add_argument('--site-url', help='Published site address for absolute links in summaries.')
-    parser.add_argument('--include-manifest', type=pathlib.Path,
-                        help='Existing site manifest whose reports for other projects are kept.')
-    parser.add_argument('--tool', type=pathlib.Path, default=TOOL / '.build/release/interface-coverage')
-    arguments = parser.parse_args()
+def valid_entry(directory, fingerprint):
+    """Returns the cache entry in a directory if it is complete and has the fingerprint."""
+    path = directory / 'cache.json'
+    if not path.exists():
+        return None
+    entry = json.loads(path.read_text())
+    complete = all((directory / report['file']).exists() for report in entry.get('reports', []))
+    if entry.get('cacheVersion') != CACHE_VERSION or entry.get('fingerprint') != fingerprint or not complete:
+        return None
+    return entry
+
+
+def collect(arguments):
     work = arguments.work.resolve()
-    site = (arguments.site or work / 'site').resolve()
     tool_commit = subprocess.check_output(['git', '-C', str(TOOL), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(['git', '-C', str(TOOL), 'status', '--porcelain', '--', 'Sources', 'Package.swift'], text=True):
         tool_commit += '-dirty'
-    collected = datetime.now(timezone.utc).isoformat()
+    tool_fingerprint = source_fingerprint()
+    oci = OCICache(arguments.oci_repository, arguments.publish_oci_cache) if arguments.oci_repository else None
     versions = published_releases(arguments.repository, work) if arguments.all_releases else arguments.release
-    # A report is reused when the tool binary and the input interfaces are unchanged.
-    tool_digest = sha256(arguments.tool)
+    inputs = {}
+    records = []
+    for target in arguments.target or ['iOS', 'macOS']:
+        settings = TARGETS[target]
+        for xcode in arguments.xcode:
+            sdk = xcode / f"Contents/Developer/Platforms/{settings['sdk']}.platform/Developer/SDKs/{settings['sdk']}.sdk"
+            sdk_settings_data = (sdk / 'SDKSettings.plist').read_bytes()
+            sdk_settings = plistlib.loads(sdk_settings_data)
+            sdk_name = sdk_settings['CanonicalName']
+            baseline = f"{target} {sdk_settings['Version']}"
+            references = {}
+            for module in MODULES:
+                source = sdk / f"System/Library/Frameworks/{module}.framework/Modules/{module}.swiftmodule/{settings['reference']}.swiftinterface"
+                path = work / 'inputs' / sdk_name / f'{module}.swiftinterface'
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(source.read_bytes())
+                references[module] = path
+            for version in versions:
+                fingerprint = hashlib.sha256(json.dumps(dict(
+                    cacheVersion=CACHE_VERSION, tool=tool_fingerprint, target=settings, scopes=SCOPES,
+                    candidates=asset_digests(arguments.repository, version, work),
+                    references=[sha256(references[module]) for module in MODULES],
+                ), sort_keys=True).encode()).hexdigest()
+                tag = f'{version}-{sdk_name}-{fingerprint[:16]}'
+                directory = work / 'reports' / 'openswiftui' / version / target / sdk_name
+                entry, source = valid_entry(directory, fingerprint), 'local cache'
+                if entry is None and oci:
+                    with tempfile.TemporaryDirectory() as temporary:
+                        if oci.pull(tag, temporary) and valid_entry(pathlib.Path(temporary), fingerprint):
+                            shutil.rmtree(directory, ignore_errors=True)
+                            shutil.copytree(temporary, directory)
+                            entry, source = valid_entry(directory, fingerprint), 'OCI cache'
+                if entry is None:
+                    if (version, target) not in inputs:
+                        inputs[version, target] = release_inputs(arguments.repository, version, target, work)
+                    candidates, release_info = inputs[version, target]
+                    shutil.rmtree(directory, ignore_errors=True)
+                    directory.mkdir(parents=True)
+                    reports = []
+                    for scope, modules in SCOPES:
+                        name = f'{slug(scope)}.json'
+                        command = [str(arguments.tool)]
+                        command += [item for module in modules for item in ('--reference', str(references[module]))]
+                        command += [item for module in modules for item in ('--candidate', str(candidates[module]))]
+                        command += ['--format', 'json', '--output', str(directory / name)]
+                        subprocess.run(command, check=True)
+                        reports.append(dict(scope=scope, file=name))
+                    entry = dict(
+                        cacheVersion=CACHE_VERSION, fingerprint=fingerprint, version=version, target=target,
+                        baseline=baseline, sdk=sdk_name, reports=reports,
+                        metadata=dict(release_info, baselineSDK=sdk_name, baselineXcode=xcode.stem,
+                                      sdkSettingsSHA256=hashlib.sha256(sdk_settings_data).hexdigest(),
+                                      targetEnvironment=settings['variant'] or 'native', toolCommit=tool_commit,
+                                      toolSourceFingerprint=tool_fingerprint,
+                                      collectedAt=datetime.now(timezone.utc).isoformat()))
+                    (directory / 'cache.json').write_text(json.dumps(entry, indent=2, sort_keys=True) + '\n')
+                    source = 'generated'
+                if oci:
+                    oci.push(tag, directory, ['cache.json', *(report['file'] for report in entry['reports'])])
+                for report in entry['reports']:
+                    path = directory / report['file']
+                    summary = json.loads(path.read_text())['coverage']['summary']
+                    print(version, baseline, report['scope'], f"{summary['matched']}/{summary['reference']}", f'({source})', flush=True)
+                    records.append(dict(project='OpenSwiftUI', version=version, target=target, baseline=baseline,
+                                        scope=report['scope'], profile='Default', notes=[settings['note']],
+                                        report=str(path.relative_to(work)), metadata=entry['metadata']))
+    (work / 'records.json').write_text(json.dumps(records, indent=2) + '\n')
+    if not arguments.no_site:
+        build_site([work], arguments)
 
+
+def build_site(directories, arguments):
+    """Builds one site from the records of one or more work directories."""
     records = []
     if arguments.include_manifest:
         base = arguments.include_manifest.resolve().parent
         for record in json.loads(arguments.include_manifest.read_text())['reports']:
             if record['project'] != 'OpenSwiftUI':
                 records.append(dict(record, report=str((base / record['report']).resolve())))
-
-    for target in arguments.target or ['iOS', 'macOS']:
-        settings = TARGETS[target]
-        candidates = {version: release_inputs(arguments.repository, version, target, work) for version in versions}
-        for xcode in arguments.xcode:
-            sdk = xcode / f"Contents/Developer/Platforms/{settings['sdk']}.platform/Developer/SDKs/{settings['sdk']}.sdk"
-            sdk_settings_data = (sdk / 'SDKSettings.plist').read_bytes()
-            sdk_settings = plistlib.loads(sdk_settings_data)
-            baseline = f"{target} {sdk_settings['Version']}"
-            sdk_metadata = dict(baselineSDK=sdk_settings['CanonicalName'], baselineXcode=xcode.stem,
-                                sdkSettingsSHA256=hashlib.sha256(sdk_settings_data).hexdigest(),
-                                targetEnvironment=settings['variant'] or 'native')
-            references = {}
-            for module in MODULES:
-                source = sdk / f"System/Library/Frameworks/{module}.framework/Modules/{module}.swiftmodule/{settings['reference']}.swiftinterface"
-                path = work / 'inputs' / sdk_settings['CanonicalName'] / f'{module}.swiftinterface'
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(source.read_bytes())
-                references[module] = path
-            for version in versions:
-                candidate_paths, release_metadata = candidates[version]
-                for scope, modules in SCOPES:
-                    destination = work / 'reports' / 'openswiftui' / version / target / f"{sdk_settings['CanonicalName']}-{'-'.join(modules)}.json"
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    command = [str(arguments.tool)]
-                    command += [item for module in modules for item in ('--reference', str(references[module]))]
-                    command += [item for module in modules for item in ('--candidate', str(candidate_paths[module]))]
-                    command += ['--format', 'json', '--output', str(destination)]
-                    key = json.dumps(dict(tool=tool_digest, command=command[1:], inputs=[
-                        sha256(references[module]) for module in modules] + [sha256(candidate_paths[module]) for module in modules]))
-                    key_path = destination.with_suffix('.key')
-                    if not destination.exists() or not key_path.exists() or key_path.read_text() != key:
-                        subprocess.run(command, check=True)
-                        key_path.write_text(key)
-                    summary = json.loads(destination.read_text())['coverage']['summary']
-                    print(version, baseline, scope, f"{summary['matched']}/{summary['reference']}", flush=True)
-                    records.append(dict(
-                        project='OpenSwiftUI', version=version, target=target, baseline=baseline, scope=scope,
-                        profile='Default', report=str(destination), notes=[settings['note']],
-                        metadata=dict(release_metadata, **sdk_metadata, toolCommit=tool_commit, collectedAt=collected)))
-
+    # Manifest order sets the baseline order, so sort the records of all runs.
+    collected = []
+    for directory in directories:
+        for record in json.loads((directory / 'records.json').read_text()):
+            collected.append(dict(record, report=str((directory / record['report']).resolve())))
+    scopes = [scope for scope, _ in SCOPES]
+    targets = list(TARGETS)
+    collected.sort(key=lambda record: (targets.index(record['target']),
+                                       [int(part) for part in re.findall(r'\d+', record['baseline'])],
+                                       scopes.index(record['scope'])))
+    records += collected
+    work = arguments.work.resolve()
+    work.mkdir(parents=True, exist_ok=True)
     manifest = work / 'manifest.json'
     specification = dict(schemaVersion=1, title='InterfaceCoverage', reports=records)
     if arguments.site_url:
         specification['siteURL'] = arguments.site_url
     manifest.write_text(json.dumps(specification, indent=2) + '\n')
+    site = (arguments.site or work / 'site').resolve()
     subprocess.run([str(arguments.tool), 'site', '--manifest', str(manifest), '--output', str(site)], check=True)
     print(f'Generated {len(records)} comparisons in {site}.', flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    commands = parser.add_subparsers(dest='command', required=True)
+
+    def add_site_options(command):
+        command.add_argument('--work', type=pathlib.Path, default=TOOL / '.preview',
+                             help='Directory for downloads, inputs, reports, and the manifest.')
+        command.add_argument('--site', type=pathlib.Path, help='Site output directory. The default is WORK/site.')
+        command.add_argument('--site-url', help='Published site address for absolute links in summaries.')
+        command.add_argument('--include-manifest', type=pathlib.Path,
+                             help='Existing site manifest whose reports for other projects are kept.')
+        command.add_argument('--tool', type=pathlib.Path, default=TOOL / '.build/release/interface-coverage')
+
+    collect_command = commands.add_parser('collect', help='Compare releases with the SDKs of one or more Xcodes.')
+    releases = collect_command.add_mutually_exclusive_group(required=True)
+    releases.add_argument('--release', action='append', help='Release tag. Repeat for more releases.')
+    releases.add_argument('--all-releases', action='store_true',
+                          help='Use every published release that includes both XCFrameworks.')
+    collect_command.add_argument('--xcode', action='append', required=True, type=pathlib.Path,
+                                 help='Xcode application that supplies the baseline SDK. Repeat for more baselines.')
+    collect_command.add_argument('--target', action='append', choices=sorted(TARGETS),
+                                 help='Target. The default is iOS and macOS.')
+    collect_command.add_argument('--repository', default='OpenSwiftUIProject/OpenSwiftUI')
+    collect_command.add_argument('--oci-repository',
+                                 help='OCI repository for cache entries, such as ghcr.io/owner/name, or a local OCI layout directory.')
+    collect_command.add_argument('--publish-oci-cache', action='store_true',
+                                 help='Push new cache entries to the OCI repository.')
+    collect_command.add_argument('--no-site', action='store_true', help='Write the reports and records only.')
+    add_site_options(collect_command)
+
+    assemble_command = commands.add_parser('assemble', help='Build one site from the work directories of collect runs.')
+    assemble_command.add_argument('--input', action='append', required=True, type=pathlib.Path,
+                                  help='Work directory of a collect run. Repeat for more runs.')
+    add_site_options(assemble_command)
+
+    arguments = parser.parse_args()
+    if arguments.command == 'collect':
+        collect(arguments)
+    else:
+        build_site([directory.resolve() for directory in arguments.input], arguments)
 
 
 if __name__ == '__main__':

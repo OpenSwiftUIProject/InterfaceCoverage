@@ -194,23 +194,41 @@ the chart. The HTML embed and Markdown/SVG exports remain version tables.
 
 To collect OpenSwiftUI release reports, run
 [`Scripts/collect_openswiftui_releases.py`](Scripts/collect_openswiftui_releases.py).
-It downloads the OpenSwiftUI and OpenSwiftUICore XCFrameworks of each release
-with `gh`, verifies their published digests, compares the iOS simulator and macOS
-interfaces with the SDK of each Xcode, and generates the site. Downloads, inputs,
-and reports stay in the ignored `.preview` directory by default.
+`collect` compares the iOS simulator and macOS interfaces of each release with
+the SDK of each Xcode and generates the site. Downloads, inputs, and reports
+stay in the ignored `.preview` directory by default.
 
 ```sh
 swift build --package-path Tools/InterfaceCoverage -c release
-python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py \
+python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py collect \
   --release 0.23.1 --release 0.23.0 \
   --xcode /Applications/Xcode-16.4.0.app --xcode /Applications/Xcode-26.6.0.app
 ```
 
 Use `--all-releases` in place of `--release` to compare every published release
-that includes both XCFrameworks. A report is generated again only when the tool
-binary or an input interface changes. Pass `--site-url` to make summary links
+that includes both XCFrameworks. Pass `--site-url` to make summary links
 absolute. Add `--include-manifest` with an earlier manifest to keep its reports
 for other projects in the same site.
+
+The results for one release, target, and SDK form a cache entry: one report for
+each scope and a `cache.json` file. An entry is reused while its fingerprint
+matches. The fingerprint covers the tool sources, the release asset digests,
+and the SDK interfaces, so equal inputs share entries on every machine. Release
+assets are downloaded with `gh` only when an entry must be generated.
+
+With `--oci-repository`, missing entries are pulled from an OCI registry with
+[`oras`](https://oras.land), and `--publish-oci-cache` pushes new entries. A
+reference is `<version>-<sdk>-<fingerprint>`, and an existing reference is never
+replaced. A local directory path uses an OCI image layout, which is useful for
+offline tests.
+
+To run each Xcode on a different machine, pass `--no-site` to `collect`, and
+then build one site from their work directories:
+
+```sh
+python3 Tools/InterfaceCoverage/Scripts/collect_openswiftui_releases.py assemble \
+  --input work-16.4 --input work-26.6 --site site
+```
 
 Labels come from the manifest; the generator does not infer a release from an interface.
 Record the actual candidate commit, build SDK, compiler, build flags, dependency
@@ -283,22 +301,27 @@ python3 Tools/InterfaceCoverage/Scripts/update_release_notes.py --version 0.23.1
 to GitHub Pages at <https://openswiftuiproject.github.io/InterfaceCoverage/>.
 It runs on a push to `main`, on manual dispatch, and when an OpenSwiftUI release
 sends an `openswiftui-release` repository dispatch with `client_payload.version`.
+All jobs use GitHub-hosted runners.
 
-1. A self-hosted macOS runner with the `macos-26` label builds the tool and runs
-   `collect_openswiftui_releases.py --all-releases`. The runner must have
-   Xcode 16.4 (iOS 18.5 and macOS 15.5), Xcode 26.6, and Xcode 27.0 in
-   `/Applications`. SDK interfaces are read on the runner and are not stored in
-   this repository. Downloads, reports, and the build stay in the runner tool
-   cache between runs.
-2. The site is deployed with `actions/deploy-pages`. Set the Pages source of
-   this repository to GitHub Actions.
-3. For a release dispatch, `update_release_notes.py` adds the iOS 18.5 and
+1. `tool` builds the tool on `macos-26`. `actions/cache` keeps `.build` for the
+   same sources.
+2. `compare` runs `collect --all-releases` once for each baseline Xcode, on the
+   runner image that includes it: Xcode 16.4 (iOS 18.5 and macOS 15.5) on
+   `macos-15`, Xcode 26.6 on `macos-26`, and Xcode 27.0 on `xcode-27`. SDK
+   interfaces are read on that runner and are not stored. Cache entries are
+   pulled from and pushed to `ghcr.io/openswiftuiproject/interface-coverage-cache`
+   with `GITHUB_TOKEN`, so only new releases or changed tool sources are
+   compared again.
+3. `site` assembles the reports of all baselines, and `deploy` publishes them
+   with `actions/deploy-pages`. The Pages source of this repository is GitHub
+   Actions.
+4. For a release dispatch, `update_release_notes.py` adds the iOS 18.5 and
    macOS 15.5 table to the OpenSwiftUI release notes. This needs the
    `OPENSWIFTUI_RELEASE_PAT` secret: a fine-grained token with write access to
    the contents of OpenSwiftUIProject/OpenSwiftUI.
 
-The published site includes the reference declarations of each SDK baseline,
-because the declaration lists show matched and missing APIs.
+The published site and the cache entries include the reference declarations of
+each SDK baseline, because the declaration lists show matched and missing APIs.
 
 ## Comparison flags
 
