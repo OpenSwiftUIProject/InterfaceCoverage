@@ -212,8 +212,12 @@ for other projects in the same site.
 
 The results for one release, target, and SDK form a cache entry: one report for
 each scope and a `cache.json` file. An entry is reused while its fingerprint
-matches. The fingerprint covers the tool sources, the release asset digests,
-and the SDK interfaces, so equal inputs share entries on every machine. Release
+matches. The fingerprint covers `ScanOptions.currentRulesVersion`, the
+script's `CACHE_VERSION`, the release asset digests, and the SDK interfaces, so
+equal inputs share entries on every machine. Other tool changes do not
+invalidate entries. Increase the rules version when a change, including a
+SwiftSyntax update, can produce different results, and increase `CACHE_VERSION`
+when the cache entry layout or the comparison commands change. Release
 assets are downloaded with `gh` only when an entry must be generated.
 
 With `--oci-repository`, missing entries are pulled from an OCI registry with
@@ -312,8 +316,8 @@ All jobs use GitHub-hosted runners.
    `macos-15`, Xcode 26.6 on `macos-26`, and Xcode 27.0 on `xcode-27`. SDK
    interfaces are read on that runner and are not stored. Cache entries are
    pulled from and pushed to `ghcr.io/openswiftuiproject/interface-coverage-cache`
-   with `GITHUB_TOKEN`, so only new releases or changed tool sources are
-   compared again.
+   with `GITHUB_TOKEN`, so only new releases, changed SDKs, or an increased
+   rules or cache version are compared again.
 3. `site` assembles the reports of all baselines, and `deploy` publishes them
    with `actions/deploy-pages`. The Pages source of this repository is GitHub
    Actions.

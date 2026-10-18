@@ -29,8 +29,10 @@ public struct InterfaceInput: Sendable, Codable {
 }
 
 public struct ScanOptions: Sendable, Codable {
-    /// The version of the built-in matching rules. Increase it when a change
-    /// can produce different signatures for the same input.
+    /// The version of the built-in matching rules. Increase it when a change,
+    /// including a SwiftSyntax update, can produce different results for the
+    /// same input. Cached release reports are generated again only after an
+    /// increase.
     public static let currentRulesVersion = 2
 
     /// Reports from before this field was added use version 1.

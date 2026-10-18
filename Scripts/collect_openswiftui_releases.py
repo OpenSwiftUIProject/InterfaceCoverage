@@ -8,10 +8,12 @@ reports and `records.json` to the work directory, and builds the site unless
 several `collect` runs, for example one run for each Xcode.
 
 The results for one release, target, and SDK form a cache entry. An entry is
-reused when its fingerprint matches: the tool sources, the release assets, and
-the SDK interfaces are unchanged. Entries stay in the work directory and can
-also be stored in an OCI registry, such as GHCR, with `oras`. Release assets are
-downloaded with `gh` only when an entry must be generated.
+reused when its fingerprint matches: the matching rules version, the cache
+version, the release assets, and the SDK interfaces are unchanged. Other tool
+changes do not invalidate entries; increase a version to generate them again.
+Entries stay in the work directory and can also be stored in an OCI registry,
+such as GHCR, with `oras`. Release assets are downloaded with `gh` only when an
+entry must be generated.
 
 Build the tool first:
 
@@ -32,6 +34,7 @@ from datetime import datetime, timezone
 
 TOOL = pathlib.Path(__file__).resolve().parent.parent
 # Increase when the cache entry layout or the comparison commands change.
+# Increase `ScanOptions.currentRulesVersion` in the tool when signatures change.
 CACHE_VERSION = 1
 ARTIFACT_TYPE = 'application/vnd.openswiftuiproject.interface-coverage.cache.v1'
 MODULES = ['SwiftUI', 'SwiftUICore']
@@ -59,14 +62,13 @@ def slug(text):
     return '-'.join(re.findall('[a-z0-9]+', text.lower()))
 
 
-def source_fingerprint():
-    """Identifies the tool sources, so equal sources share cache entries on every runner."""
-    digest = hashlib.sha256()
-    files = [TOOL / 'Package.swift', TOOL / 'Package.resolved', *sorted((TOOL / 'Sources').rglob('*'))]
-    for path in files:
-        if path.is_file() and path.name != '.DS_Store':
-            digest.update(str(path.relative_to(TOOL)).encode() + b'\0' + path.read_bytes() + b'\0')
-    return digest.hexdigest()
+def rules_version():
+    """Reads the matching rules version, which identifies the comparison results of the tool."""
+    source = (TOOL / 'Sources/InterfaceCoverage/Model.swift').read_text()
+    match = re.search(r'static let currentRulesVersion = (\d+)', source)
+    if match is None:
+        raise SystemExit('Cannot find ScanOptions.currentRulesVersion in Model.swift.')
+    return int(match.group(1))
 
 
 class OCICache:
@@ -219,7 +221,7 @@ def collect(arguments):
     tool_commit = subprocess.check_output(['git', '-C', str(TOOL), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(['git', '-C', str(TOOL), 'status', '--porcelain', '--', 'Sources', 'Package.swift'], text=True):
         tool_commit += '-dirty'
-    tool_fingerprint = source_fingerprint()
+    rules = rules_version()
     oci = OCICache(arguments.oci_repository, arguments.publish_oci_cache) if arguments.oci_repository else None
     versions = published_releases(arguments.repository, work) if arguments.all_releases else arguments.release
     inputs = {}
@@ -241,7 +243,7 @@ def collect(arguments):
                 references[module] = path
             for version in versions:
                 fingerprint = hashlib.sha256(json.dumps(dict(
-                    cacheVersion=CACHE_VERSION, tool=tool_fingerprint, target=settings, scopes=SCOPES,
+                    cacheVersion=CACHE_VERSION, rulesVersion=rules, target=settings, scopes=SCOPES,
                     candidates=asset_digests(arguments.repository, version, work),
                     references=[sha256(references[module]) for module in MODULES],
                 ), sort_keys=True).encode()).hexdigest()
@@ -275,7 +277,7 @@ def collect(arguments):
                         metadata=dict(release_info, baselineSDK=sdk_name, baselineXcode=xcode.stem,
                                       sdkSettingsSHA256=hashlib.sha256(sdk_settings_data).hexdigest(),
                                       targetEnvironment=settings['variant'] or 'native', toolCommit=tool_commit,
-                                      toolSourceFingerprint=tool_fingerprint,
+                                      rulesVersion=str(rules),
                                       collectedAt=datetime.now(timezone.utc).isoformat()))
                     (directory / 'cache.json').write_text(json.dumps(entry, indent=2, sort_keys=True) + '\n')
                     source = 'generated'
