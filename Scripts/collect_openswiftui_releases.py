@@ -132,9 +132,12 @@ def release_inputs(repository, version, target, work):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(archive.read(interfaces[0]))
             candidates[module] = path
-        metadata.update({f'{name}.assetSHA256': sha256(archive_path), f'{name}.interfacePath': interfaces[0],
-                         f'{name}.buildSDK': framework['DTSDKName'], f'{name}.buildSDKBuild': framework['DTSDKBuild'],
-                         f'{name}.buildXcode': framework['DTXcode'], f'{name}.buildXcodeBuild': framework['DTXcodeBuild']})
+        metadata.update({f'{name}.assetSHA256': sha256(archive_path), f'{name}.interfacePath': interfaces[0]})
+        # Older releases do not record the build environment in the framework.
+        for key, field in [('buildSDK', 'DTSDKName'), ('buildSDKBuild', 'DTSDKBuild'),
+                           ('buildXcode', 'DTXcode'), ('buildXcodeBuild', 'DTXcodeBuild')]:
+            if field in framework:
+                metadata[f'{name}.{key}'] = framework[field]
     return candidates, metadata
 
 
