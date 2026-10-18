@@ -1,0 +1,104 @@
+name: Pages
+
+# Builds the coverage site from published OpenSwiftUI releases and deploys it to
+# GitHub Pages. An OpenSwiftUI release sends `openswiftui-release`, and the new
+# coverage table is then added to that release's notes.
+#
+# The build job runs on a self-hosted runner, so this workflow has no
+# pull_request trigger. Code from forks never runs on that runner.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: OpenSwiftUI release whose notes get the coverage table. Leave empty to only deploy the site.
+        default: ''
+        type: string
+  repository_dispatch:
+    types: [openswiftui-release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://openswiftuiproject.github.io/InterfaceCoverage/
+
+jobs:
+  build:
+    name: Build the coverage site
+    # Xcode 16.4 supplies the iOS 18.5 and macOS 15.5 baselines.
+    runs-on: [self-hosted, macOS, macos-26]
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode-26.6.0.app/Contents/Developer
+      BASELINE_XCODES: /Applications/Xcode-16.4.0.app /Applications/Xcode-26.6.0.app /Applications/Xcode-27.0.0.app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check the baseline Xcode installations
+        run: |
+          for xcode in $BASELINE_XCODES; do
+            if [[ ! -d "$xcode" ]]; then
+              echo "::error::$xcode is not installed on this runner."
+              exit 1
+            fi
+          done
+      # Downloads, input interfaces, reports, and the tool build stay on the runner
+      # between runs. A report is generated again only when its inputs change.
+      - name: Build the tool
+        run: |
+          work="$RUNNER_TOOL_CACHE/org.openswiftuiproject.openswiftui.interface-coverage"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          swift build -c release --scratch-path "$work/build"
+      - name: Compare releases and generate the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          xcodes=()
+          for xcode in $BASELINE_XCODES; do xcodes+=(--xcode "$xcode"); done
+          python3 Scripts/collect_openswiftui_releases.py --all-releases "${xcodes[@]}" \
+            --work "$WORK" --site "$RUNNER_TEMP/site" --site-url "$SITE_URL" \
+            --tool "$WORK/build/release/interface-coverage"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  release-notes:
+    name: Add coverage to the release notes
+    needs: deploy
+    if: github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.release != '')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Update the OpenSwiftUI release notes
+        env:
+          # A fine-grained token with write access to OpenSwiftUI contents.
+          GH_TOKEN: ${{ secrets.OPENSWIFTUI_RELEASE_PAT }}
+          VERSION: ${{ github.event.client_payload.version || inputs.release }}
+        run: |
+          python3 Scripts/update_release_notes.py --repository OpenSwiftUIProject/OpenSwiftUI \
+            --version "$VERSION" --summary "${SITE_URL}summary/openswiftui/${VERSION}.json" \
+            --baseline "iOS 18.5" --baseline "macOS 15.5"

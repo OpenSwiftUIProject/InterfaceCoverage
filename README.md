@@ -277,6 +277,29 @@ python3 Tools/InterfaceCoverage/Scripts/update_release_notes.py --version 0.23.1
   --baseline "iOS 18.5" --baseline "macOS 15.5"
 ```
 
+## Deployment
+
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) publishes the site
+to GitHub Pages at <https://openswiftuiproject.github.io/InterfaceCoverage/>.
+It runs on a push to `main`, on manual dispatch, and when an OpenSwiftUI release
+sends an `openswiftui-release` repository dispatch with `client_payload.version`.
+
+1. A self-hosted macOS runner with the `macos-26` label builds the tool and runs
+   `collect_openswiftui_releases.py --all-releases`. The runner must have
+   Xcode 16.4 (iOS 18.5 and macOS 15.5), Xcode 26.6, and Xcode 27.0 in
+   `/Applications`. SDK interfaces are read on the runner and are not stored in
+   this repository. Downloads, reports, and the build stay in the runner tool
+   cache between runs.
+2. The site is deployed with `actions/deploy-pages`. Set the Pages source of
+   this repository to GitHub Actions.
+3. For a release dispatch, `update_release_notes.py` adds the iOS 18.5 and
+   macOS 15.5 table to the OpenSwiftUI release notes. This needs the
+   `OPENSWIFTUI_RELEASE_PAT` secret: a fine-grained token with write access to
+   the contents of OpenSwiftUIProject/OpenSwiftUI.
+
+The published site includes the reference declarations of each SDK baseline,
+because the declaration lists show matched and missing APIs.
+
 ## Comparison flags
 
 | Option | Effect |
