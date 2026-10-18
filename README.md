@@ -264,15 +264,16 @@ Select **Embed table** to copy an iframe for the current filters or download the
 group's complete Markdown/SVG table. The embedding page uses the same catalog and
 counts as the full report.
 
-The URL keeps the current view. `report=<version>@<baseline>` selects a bar,
-with the baseline as a lowercase slug, for example
-`target=iOS&report=0.23.1@ios-18.5`. `target` always appears. `project`,
+The target filter can show all platforms, like the baseline filter, and that is
+the default. The URL keeps the current view. `report=<version>@<baseline>`
+selects a bar, with the baseline as a lowercase slug, for example
+`report=0.23.1@ios-18.5`. `target` appears only for one platform, and `project`,
 `scope`, and `profile` appear only when they differ from the default, the first
-choice in manifest order. `baseline` shows one baseline
-only, and `status`, `kind`, and `q` keep the declaration list state. Without a
-selection, the newest version is selected. When a filter changes, the selection
-keeps its version and baseline if the new view has them, and otherwise uses the
-same version or the nearest version. The chart scrolls to show the selected bar.
+choice in manifest order. `baseline` shows one baseline only, and `status`,
+`kind`, and `q` keep the declaration list state. Without a selection, the
+newest version is selected. When a filter changes, the selection keeps its
+version and baseline if the new view has them, and otherwise uses the same
+version or the nearest version. The chart scrolls to show the selected bar.
 
 The `site` command does not collect releases, build candidates, schedule runs, or
 deploy a site. It prepares the same output for local viewing and later CI publication.
@@ -290,9 +291,11 @@ The site also writes static files for other pages to use:
   target, baseline, scope, and profile. `summary/<project>/<version>.md` shows
   the same results as Markdown tables for release notes.
 
-Summary links use the same `report=<version>@<baseline>` selection, always
-include `target`, and leave out other default filters, so they stay valid when reports are generated again. Set
-`siteURL` in the manifest to make these links absolute.
+Summary links use the same `report=<version>@<baseline>` selection and leave
+out default filters, so they stay valid when reports are generated again. Each
+result link names its target. The summary's top-level `url` shows all platforms
+of the version, and release notes use it for the full report. Set `siteURL` in
+the manifest to make these links absolute.
 
 ```text
 https://img.shields.io/endpoint?url=https://openswiftuiproject.github.io/InterfaceCoverage/badges/openswiftui-ios-ios-18-5-swiftui-swiftuicore-default.json

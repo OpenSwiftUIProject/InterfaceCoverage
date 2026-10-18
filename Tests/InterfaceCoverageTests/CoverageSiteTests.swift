@@ -242,9 +242,11 @@ struct CoverageSiteTests {
         let summaryURL = output.appendingPathComponent("summary/example/0.9.0.json")
         let summary = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: summaryURL)) as? [String: Any])
         let results = try #require(summary["results"] as? [[String: Any]])
+        // The version link shows all platforms, so it has no target.
+        #expect(summary["url"] as? String == "https://example.com/coverage/index.html?report=0.9.0@ios-18.5")
         #expect(results.count == 2)
         #expect(results.first?["matched"] as? Int == 0)
-        // The target is always written, and other default filters are left out.
+        // A cell link names its target, and other default filters are left out.
         // A selection is the version and the baseline slug.
         #expect(results.first?["url"] as? String == "https://example.com/coverage/index.html?target=macOS&report=0.9.0@ios-18.5")
         #expect(results.last?["url"] as? String == "https://example.com/coverage/index.html?target=macOS&scope=C%20%2B%20D&report=0.9.0@ios-18.5")

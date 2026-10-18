@@ -136,7 +136,9 @@ public enum CoverageSite {
         for project in ordered(records.map(\.project)) {
             for version in ordered(records.filter { $0.project == project }.map(\.version)) {
                 let rows = records.filter { $0.project == project && $0.version == version }
-                let summary = VersionSummary(project: project, version: version, results: rows.map { row in
+                // The version link shows all platforms and selects the first result.
+                let url = link(to: rows[0], in: records, siteURL: specification.siteURL, target: false)
+                let summary = VersionSummary(project: project, version: version, url: url, results: rows.map { row in
                     VersionSummary.Result(
                         target: row.target, baseline: row.baseline, scope: row.scope, profile: row.profile,
                         matched: row.summary.matched, reference: row.summary.reference, percent: row.summary.percent,
@@ -205,14 +207,18 @@ public enum CoverageSite {
     }
 
     /// Links to one bar of the chart. The site selects it with `report=<version>@<baseline>`.
-    /// As on the site, the target is always written, and other filters only when they differ
-    /// from the default: the first choice in manifest order.
-    private static func link(to row: SiteRecord, in records: [SiteRecord], siteURL: String?) -> String {
+    /// With `target`, the link shows only the row's platform; without it, all platforms. As on
+    /// the site, other filters are written only when they differ from the default: the first
+    /// choice in manifest order.
+    private static func link(to row: SiteRecord, in records: [SiteRecord], siteURL: String?, target: Bool = true) -> String {
         var items: [(String, String)] = []
         var candidates = records
         let filters: [(String, KeyPath<SiteRecord, String>)] = [("project", \.project), ("target", \.target), ("scope", \.scope), ("profile", \.profile)]
         for (name, keyPath) in filters {
-            if name == "target" || candidates.first?[keyPath: keyPath] != row[keyPath: keyPath] {
+            if name == "target" {
+                guard target else { continue }
+                items.append((name, row.target))
+            } else if candidates.first?[keyPath: keyPath] != row[keyPath: keyPath] {
                 items.append((name, row[keyPath: keyPath]))
             }
             candidates = candidates.filter { $0[keyPath: keyPath] == row[keyPath: keyPath] }
@@ -413,6 +419,7 @@ private struct VersionSummary: Encodable {
     let schemaVersion = 1
     let project: String
     let version: String
+    let url: String
     let note = "Declaration signatures compared with SDK interfaces. Matching declarations can include stubs."
     let results: [Result]
 }

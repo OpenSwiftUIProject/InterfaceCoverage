@@ -69,11 +69,16 @@
 
   function parameters(includeDetail = true) {
     const params = new URLSearchParams();
-    // Write the target always, and other filters only when they differ from the default,
-    // the first choice in manifest order.
+    // Write a filter only when it differs from the default: all platforms for the target, and
+    // the first choice in manifest order for the others.
     let filtered = reports;
     for (const key of ["project", "target", "scope", "profile"]) {
-      if (state[key] && (key === "target" || state[key] !== filtered[0]?.[key])) params.set(key, state[key]);
+      if (key === "target") {
+        if (!state.target) continue;
+        params.set(key, state.target);
+      } else if (state[key] && state[key] !== filtered[0]?.[key]) {
+        params.set(key, state[key]);
+      }
       filtered = filtered.filter(row => row[key] === state[key]);
     }
     if (state.baseline) params.set("baseline", state.baseline);
@@ -113,7 +118,10 @@
       render();
     })));
     let filtered = reports.filter(row => row.project === state.project);
-    for (const key of ["target", "scope", "profile"]) {
+    // Like the baseline, the target can include every platform.
+    choices("target", unique(filtered.map(row => row.target)), "All platforms");
+    filtered = filtered.filter(row => !state.target || row.target === state.target);
+    for (const key of ["scope", "profile"]) {
       choices(key, unique(filtered.map(row => row[key])));
       filtered = filtered.filter(row => row[key] === state[key]);
     }
@@ -376,7 +384,7 @@
     $("matrix").replaceChildren(table);
     if (embedded) {
       $("matrix-title").textContent = `${state.project} interface coverage`;
-      $("matrix-description").textContent = `${state.target} · ${state.scope} · ${state.profile}`;
+      $("matrix-description").textContent = `${state.target || "All platforms"} · ${state.scope} · ${state.profile}`;
       $("full-report").href = `index.html?${queryString(parameters(false))}`;
     }
   }

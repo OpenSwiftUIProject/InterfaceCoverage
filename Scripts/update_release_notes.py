@@ -43,8 +43,8 @@ def section(summary, baselines, profile):
     rows = list(dict.fromkeys(item['baseline'] for item in results))
     if baselines:
         rows = [baseline for baseline in baselines if baseline in rows]
-    # The full report opens the first cell: the first baseline in the first scope.
-    report = next(item['url'] for item in results if item['baseline'] == rows[0] and item['scope'] == scopes[0])
+    # The full report shows all platforms of the version.
+    report = summary['url']
     if not report.startswith(('http://', 'https://')):
         raise SystemExit('The summary has relative links. Generate the site with a site URL.')
     lines = [START, '## Interface Coverage', '',
