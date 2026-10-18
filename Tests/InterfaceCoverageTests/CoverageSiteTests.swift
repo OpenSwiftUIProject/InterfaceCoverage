@@ -226,11 +226,13 @@ struct CoverageSiteTests {
         newer["version"] = "0.10.0"
         newer["report"] = "full.json"
         newer["baseline"] = "iOS 18.5"
+        newer["scope"] = "A + B"
         var older = try fixture(root)
         older["version"] = "0.9.0"
         older["baseline"] = "iOS 18.5"
+        older["scope"] = "A + B"
         let output = try generate(root, rows: [newer, older], siteURL: "https://example.com/coverage/")
-        let badgeURL = output.appendingPathComponent("badges/example-macos-ios-18-5-example-default.json")
+        let badgeURL = output.appendingPathComponent("badges/example-macos-ios-18-5-a-b-default.json")
         let badge = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: badgeURL)) as? [String: Any])
         #expect(badge["schemaVersion"] as? Int == 1)
         #expect(badge["label"] as? String == "API coverage (iOS 18.5)")
@@ -243,6 +245,7 @@ struct CoverageSiteTests {
         let link = try #require(results.first?["url"] as? String)
         #expect(link.hasPrefix("https://example.com/coverage/index.html?"))
         #expect(link.contains("version=0.9.0"))
+        #expect(link.contains("scope=A%20%2B%20B"))
         let markdown = try String(contentsOf: output.appendingPathComponent("summary/example/0.9.0.md"), encoding: .utf8)
         #expect(markdown.contains("| iOS 18.5 | [0.00%]("))
     }

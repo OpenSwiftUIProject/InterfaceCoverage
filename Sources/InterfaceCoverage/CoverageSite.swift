@@ -212,7 +212,8 @@ public enum CoverageSite {
             ("project", row.project), ("target", row.target), ("scope", row.scope), ("profile", row.profile),
             ("baseline", row.baseline), ("version", row.version),
         ].map { URLQueryItem(name: $0, value: $1) }
-        let query = components.percentEncodedQuery ?? ""
+        // Form decoding, as in `URLSearchParams`, reads `+` as a space.
+        let query = (components.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
         guard let siteURL else { return "../../index.html?\(query)" }
         return (siteURL.hasSuffix("/") ? siteURL : siteURL + "/") + "index.html?\(query)"
     }
