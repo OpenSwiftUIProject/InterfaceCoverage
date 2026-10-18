@@ -64,6 +64,10 @@ struct Normalization {
     ) -> [String] {
         let sourceTokens = node.tokens(viewMode: .sourceAccurate).compactMap { token -> TokenSpelling? in
             let raw = token.text
+            // `__owned` and `__shared` spell the default parameter conventions.
+            if ["__owned", "__shared"].contains(raw), token.parent?.is(SimpleTypeSpecifierSyntax.self) == true {
+                return nil
+            }
             let text = raw.hasPrefix("`") && raw.hasSuffix("`") ? String(raw.dropFirst().dropLast()) : raw
             if let selector = token.parent?.as(ModuleSelectorSyntax.self) {
                 // Member selectors encode the declaring module, not another type-path component.

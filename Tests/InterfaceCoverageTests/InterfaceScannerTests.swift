@@ -110,6 +110,23 @@ struct InterfaceScannerTests {
         #expect(result.summary.matched == 1)
     }
 
+    @Test func defaultOwnershipSpecifiersDoNotAffectCoverage() throws {
+        let result = try compare(
+            """
+            public func receive<S>(subscriber: __owned S)
+            public func read(_ value: __shared Swift.String)
+            public func take(_ value: consuming Swift.String)
+            """,
+            """
+            public func receive<S>(subscriber: S)
+            public func read(_ value: Swift.String)
+            public func take(_ value: Swift.String)
+            """
+        )
+        #expect(result.summary.matched == 2)
+        #expect(result.missing.map(\.name) == ["take"])
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """

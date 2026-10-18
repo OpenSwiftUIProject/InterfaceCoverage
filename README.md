@@ -260,6 +260,8 @@ versions can differ because an interface can declare APIs newer than that target
   async/throws effects, property accessors, and macro roles.
 - Normalize mapped module prefixes, `Swift.` type prefixes, whitespace, comments,
   local parameter names, generic parameter names, and generic requirement order.
+  Ignore the `__owned` and `__shared` parameter specifiers, which spell default
+  ownership conventions. `borrowing`, `consuming`, and `inout` remain distinct.
   An inline generic constraint and the same `where` constraint are equivalent.
 - Operator parameters have no external labels. Their local names, such as
   `lhs`/`rhs` or `a`/`b`, are ignored for all operators, including `static ==`.
