@@ -195,6 +195,11 @@ profile for each comparison rule or tool revision. Baseline SDKs are independent
 of the SDK used to build a candidate. Existing build artifacts with unknown source
 revisions must be labeled as snapshots, not releases or current source coverage.
 
+Published reports with the same reference inputs and matching rules share one
+file of reference declarations under `pools/`. Each report lists its matched and
+missing declarations as indices into that file, and keeps its extra declarations.
+**Download JSON** gives the complete report with all declarations.
+
 The site validates report schemas, counts, matrix cells, and scan options before
 writing. An empty reference displays `n/a`; a missing matrix combination displays
 `—`. Input warnings remain visible. Local input paths are replaced with logical

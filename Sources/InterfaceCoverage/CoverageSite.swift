@@ -20,10 +20,10 @@ public enum CoverageSite {
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        var records: [SiteRecord] = []
         var files: [String: Data] = [:]
         var cells = Set<[String]>()
         var rules: [String: Data] = [:]
+        var prepared: [(item: SiteReportInput, group: String, pool: String, document: SiteDocument)] = []
         for item in specification.reports {
             let labels = [item.project, item.target, item.scope, item.profile, item.version, item.baseline]
             guard labels.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
@@ -48,15 +48,55 @@ public enum CoverageSite {
             }
             rules[group] = options
             document.removeLocalPaths()
-            let detail = try encoder.encode(document)
+            // Reports with the same reference inputs and rules share one pool of
+            // reference declarations. Candidate typealiases can change a few
+            // signatures, so a pool is the union of the reports' declarations.
+            let pool = digest(options + (try encoder.encode(document.reference)))
+            prepared.append((item, group, pool, document))
+        }
+        func entryKey(_ entry: APIEntry) -> String {
+            ([entry.id, entry.name] + entry.locations.map { "\($0.path):\($0.line)" }).joined(separator: "\u{0}")
+        }
+        var pools: [String: (path: String, indices: [String: Int])] = [:]
+        for key in ordered(prepared.map(\.pool)) {
+            var entries: [String: APIEntry] = [:]
+            for report in prepared where report.pool == key {
+                for entry in report.document.coverage.matched + report.document.coverage.missing {
+                    entries[entryKey(entry)] = entry
+                }
+            }
+            let sorted = entries.sorted { $0.key < $1.key }
+            let data = try encoder.encode(SitePool(entries: sorted.map(\.value)))
+            let path = "pools/\(digest(data)).json"
+            files[path] = data
+            pools[key] = (path, Dictionary(uniqueKeysWithValues: sorted.enumerated().map { ($1.key, $0) }))
+        }
+        var records: [SiteRecord] = []
+        for (item, group, poolKey, document) in prepared {
+            // Every report and its declarations were added to a pool above.
+            let pool = pools[poolKey]!
+            let coverage = document.coverage
+            func indices(_ entries: [APIEntry]) -> [Int] {
+                entries.map { pool.indices[entryKey($0)]! }
+            }
+            let published = PublishedDocument(
+                options: document.options, reference: document.reference, candidate: document.candidate,
+                warnings: document.warnings,
+                coverage: PublishedCoverage(
+                    schemaVersion: coverage.schemaVersion, summary: coverage.summary, byKind: coverage.byKind,
+                    pool: pool.path, matched: indices(coverage.matched), missing: indices(coverage.missing),
+                    extra: coverage.extra
+                )
+            )
+            let detail = try encoder.encode(published)
             // Use the published content so moving the manifest does not change report URLs.
             let id = digest(try encoder.encode(item.identity) + detail)
             files["reports/\(id).json"] = detail
             records.append(SiteRecord(
                 id: id, group: group, project: item.project, version: item.version,
                 baseline: item.baseline, target: item.target, scope: item.scope, profile: item.profile,
-                notes: item.notes ?? [], metadata: item.metadata ?? [:], summary: document.coverage.summary,
-                nearMisses: document.coverage.nearMisses.reduce(0) { $0 + $1.missing.count },
+                notes: item.notes ?? [], metadata: item.metadata ?? [:], summary: coverage.summary,
+                nearMisses: coverage.nearMisses.reduce(0) { $0 + $1.missing.count },
                 warnings: document.warnings, report: "reports/\(id).json"
             ))
         }
@@ -90,7 +130,7 @@ public enum CoverageSite {
         try "1\n".write(to: marker, atomically: true, encoding: .utf8)
         // Report and table names are content hashes. The catalog no longer refers
         // to files from earlier runs, so remove them.
-        for directory in ["reports", "tables"] {
+        for directory in ["reports", "pools", "tables"] {
             let url = output.appendingPathComponent(directory)
             for name in (try? manager.contentsOfDirectory(atPath: url.path)) ?? [] where files["\(directory)/\(name)"] == nil {
                 try manager.removeItem(at: url.appendingPathComponent(name))
@@ -235,6 +275,29 @@ private struct SiteRecord: Encodable {
     let nearMisses: Int
     let warnings: [String]
     let report: String
+}
+
+private struct SitePool: Encodable {
+    let entries: [APIEntry]
+}
+
+/// A published report. `matched` and `missing` are indices into the pool.
+private struct PublishedDocument: Encodable {
+    let options: ScanOptions
+    let reference: [SiteInterface]
+    let candidate: [SiteInterface]
+    let warnings: [String]
+    let coverage: PublishedCoverage
+}
+
+private struct PublishedCoverage: Encodable {
+    let schemaVersion: Int
+    let summary: CoverageCount
+    let byKind: [KindCoverage]
+    let pool: String
+    let matched: [Int]
+    let missing: [Int]
+    let extra: [APIEntry]
 }
 
 private struct SiteInterface: Codable {

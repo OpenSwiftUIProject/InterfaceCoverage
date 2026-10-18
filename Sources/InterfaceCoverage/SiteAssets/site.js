@@ -16,6 +16,8 @@
   const number = value => value.toLocaleString("en-US");
   const percent = count => count.reference ? `${(100 * count.matched / count.reference).toFixed(2)}%` : "n/a";
   const cache = new Map();
+  const pools = new Map();
+  let downloadURL = null;
   let groupRows = [];
   let rows = [];
   let chartWidth = 0;
@@ -322,7 +324,7 @@
 
   function renderSummary(record) {
     $("result-title").textContent = `${record.version} / ${record.baseline} · ${record.scope}`;
-    $("download").href = record.report;
+    $("download").removeAttribute("href");
     $("metrics").replaceChildren(...[
       ["coverage", percent(record.summary)], ["matched", number(record.summary.matched)],
       ["missing", number(record.summary.missing)], ["extra", number(record.summary.extra)],
@@ -343,6 +345,31 @@
         saveURL();
       }
     )));
+  }
+
+  async function fetchJSON(path) {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  // Reports with the same reference share a pool of reference declarations.
+  // Matched and missing declarations are indices into that pool.
+  async function loadReport(path) {
+    const data = await fetchJSON(path);
+    const coverage = data.coverage;
+    if (coverage.pool) {
+      if (!pools.has(coverage.pool)) {
+        const pending = fetchJSON(coverage.pool).then(pool => pool.entries);
+        pending.catch(() => pools.delete(coverage.pool));
+        pools.set(coverage.pool, pending);
+      }
+      const entries = await pools.get(coverage.pool);
+      coverage.matched = coverage.matched.map(index => entries[index]);
+      coverage.missing = coverage.missing.map(index => entries[index]);
+      delete coverage.pool;
+    }
+    return data;
   }
 
   async function selectReport(record, preserveFilters = false) {
@@ -368,13 +395,16 @@
     try {
       let data = cache.get(record.id);
       if (!data) {
-        const response = await fetch(record.report);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        data = await response.json();
+        data = await loadReport(record.report);
         cache.set(record.id, data);
       }
       if (ticket !== request) return;
       documentData = data;
+      // Offer the complete report, with pool indices resolved to declarations.
+      if (downloadURL) URL.revokeObjectURL(downloadURL);
+      downloadURL = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: "application/json"}));
+      $("download").href = downloadURL;
+      $("download").download = `${record.id}.json`;
       choices("kind", data.coverage.byKind.map(row => row.kind), "All kinds");
       $("load-state").textContent = "";
       renderEntries();

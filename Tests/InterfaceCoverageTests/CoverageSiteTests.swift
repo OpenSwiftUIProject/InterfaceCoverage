@@ -124,9 +124,26 @@ struct CoverageSiteTests {
         let publishedFile = try #require(files.first)
         let published = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: publishedFile)) as? [String: Any])
         let coverage = try #require(published["coverage"] as? [String: Any])
-        let matched = try #require(coverage["matched"] as? [[String: Any]])
-        let locations = try #require(matched.first?["locations"] as? [[String: Any]])
+        let matched = try #require(coverage["matched"] as? [Int])
+        let poolPath = try #require(coverage["pool"] as? String)
+        let pool = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: output.appendingPathComponent(poolPath))) as? [String: Any])
+        let entries = try #require(pool["entries"] as? [[String: Any]])
+        let index = try #require(matched.first)
+        let locations = try #require(entries[index]["locations"] as? [[String: Any]])
         #expect(locations.first?["path"] as? String == "reference/0/Example.swiftinterface")
+    }
+
+    @Test func reportsWithTheSameReferenceShareOnePool() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try fixture(root)
+        var second = first
+        second["version"] = "2.0"
+        let output = try generate(root, rows: [first, second])
+        let pools = try FileManager.default.contentsOfDirectory(atPath: output.appendingPathComponent("pools").path)
+        let reports = try FileManager.default.contentsOfDirectory(atPath: output.appendingPathComponent("reports").path)
+        #expect(pools.count == 1)
+        #expect(reports.count == 2)
     }
 
     @Test func catalogCountsNearMisses() throws {
