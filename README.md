@@ -223,7 +223,9 @@ matches. The fingerprint covers `ScanOptions.currentRulesVersion`, the
 script's `CACHE_VERSION`, the release asset digests, and the SDK interfaces, so
 equal inputs share entries on every machine. Other tool changes do not
 invalidate entries. Increase the rules version when a change, including a
-SwiftSyntax update, can produce different results, and increase `CACHE_VERSION`
+SwiftSyntax update, can produce different results. `RulesVersionTests` keeps a
+snapshot of normalized signatures and fails when they change, as a reminder to
+increase the version. Increase `CACHE_VERSION`
 when the cache entry layout or the comparison commands change. Release
 assets are downloaded with `gh` only when an entry must be generated.
 
