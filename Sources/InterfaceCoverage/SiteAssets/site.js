@@ -139,7 +139,17 @@
     chartReadout(rows.find(row => row.id === state.report));
   }
 
-  function renderChart() {
+  // Shows the selected bar when it is outside the visible part of the chart.
+  function revealSelection() {
+    const scroll = $("chart-scroll");
+    const bar = scroll && Array.from(scroll.querySelectorAll("[data-report]")).find(item => item.dataset.report === state.report);
+    if (!bar) return;
+    const left = bar.offsetLeft, right = left + bar.offsetWidth;
+    if (left >= scroll.scrollLeft && right <= scroll.scrollLeft + scroll.clientWidth) return;
+    scroll.scrollLeft = Math.max(0, left + bar.offsetWidth / 2 - scroll.clientWidth / 2);
+  }
+
+  function renderChart(reveal = false) {
     const focused = document.activeElement?.closest("[data-report]")?.dataset.report;
     const scrollLeft = $("chart-scroll")?.scrollLeft || 0;
     const baselines = unique(groupRows.map(row => row.baseline));
@@ -245,6 +255,7 @@
       $("chart").append(unavailable);
     }
     scroll.scrollLeft = scrollLeft;
+    if (reveal) revealSelection();
     updateChartSelection();
     if (focused) Array.from(stage.querySelectorAll("[data-report]")).find(point => point.dataset.report === focused)?.focus({preventScroll: true});
   }
@@ -253,7 +264,7 @@
     $("matrix").hidden = !embedded;
     $("chart").hidden = embedded;
     if (embedded) renderMatrix();
-    else renderChart();
+    else renderChart(true);
     $("matrix-notes").textContent = unique(rows.flatMap(row => [...row.notes, ...row.warnings])).join(" ");
   }
 
@@ -309,7 +320,9 @@
   function render() {
     renderFilters();
     // Summary links name a version, because report IDs change when reports are generated again.
-    const selected = rows.find(row => row.id === state.report) || rows.find(row => row.version === state.version) || rows[0];
+    // Without a report or version, select the newest version.
+    const version = state.version || versionOrder(unique(rows.map(row => row.version))).at(-1);
+    const selected = rows.find(row => row.id === state.report) || rows.find(row => row.version === version) || rows[0];
     state.version = null;
     state.report = selected.id;
     renderOverview();

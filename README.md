@@ -260,7 +260,9 @@ use. It does not accept input reports inside its output.
 Select **Embed table** to copy an iframe for the current filters or download the
 group's complete Markdown/SVG table. Query parameters retain project, target,
 scope, profile, baseline, selected report, declaration status, kind, and search.
-A `version` parameter selects a version when no report is selected.
+A `version` parameter selects a version when no report is selected. Without
+either parameter, the newest version is selected. The chart scrolls to show the
+selected bar.
 The embedding page uses the same catalog and counts as the full report.
 
 The `site` command does not collect releases, build candidates, schedule runs, or
