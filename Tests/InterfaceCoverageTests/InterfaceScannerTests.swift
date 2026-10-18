@@ -250,6 +250,24 @@ struct InterfaceScannerTests {
         #expect(result.missing.map(\.name) == ["other"])
     }
 
+    @Test func functionTypeLabelsAndEmptyTuplesDoNotAffectCoverage() throws {
+        let result = try compare(
+            """
+            public func run(_ body: @escaping (Swift.Int) -> Swift.Void) -> () -> Swift.Void
+            public typealias Handler = () -> ()
+            public var transform: (inout Swift.Int) -> Swift.Void { get }
+            public func point() -> (x: Swift.Int, y: Swift.Int)
+            """,
+            """
+            public func run(_ body: @escaping (_ value: Swift.Int) -> ()) -> () -> ()
+            public typealias Handler = () -> Swift.Void
+            public var transform: (_ value: inout Swift.Int) -> () { get }
+            public func point() -> (Swift.Int, Swift.Int)
+            """
+        )
+        #expect(result.missing.map(\.name) == ["point"])
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """

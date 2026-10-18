@@ -87,6 +87,14 @@ struct Normalization {
             if ["__owned", "__shared"].contains(raw), token.parent?.is(SimpleTypeSpecifierSyntax.self) == true {
                 return nil
             }
+            if let element = token.parent?.as(TupleTypeElementSyntax.self), element.parent?.parent?.is(FunctionTypeSyntax.self) == true,
+               [element.firstName?.id, element.secondName?.id, element.colon?.id].contains(token.id) {
+                // Parameter names in a function type are documentation only.
+                return nil
+            }
+            if let tuple = token.parent?.as(TupleTypeSyntax.self), tuple.elements.isEmpty {
+                return token.id == tuple.leftParen.id ? Token(text: "Void") : nil
+            }
             if let literal = opaqueReturnTypeName(containing: token) {
                 // The mangled name includes the module name. The owner and the
                 // ordinal already identify the opaque type.

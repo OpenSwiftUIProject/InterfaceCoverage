@@ -282,6 +282,8 @@ versions can differ because an interface can declare APIs newer than that target
   Never`, the return type is `Never`. A dependent member type, such as
   `Self.Body` or `T.Element`, is replaced with the other side. When both sides
   are dependent member types, one consistent spelling is used.
+- Ignore parameter names in function types, such as `(_ value: Int) -> Void`.
+  An empty tuple type `()` is `Void`. Tuple element labels remain distinct.
 - Write normalized signatures with standard Swift spacing, such as
   `func map<T1>(_: (T0) -> T1) -> SwiftUI.Box<T1>`. Generic parameters are
   numbered from the outermost scope.
