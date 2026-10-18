@@ -278,6 +278,10 @@ versions can differ because an interface can declare APIs newer than that target
   generic parameters. A typealias declared on one side only is kept, because it
   can stand in for a type on the other side. Module-level and generic
   typealiases are not expanded.
+- Apply same-type requirements. In `func body() -> Self.Body where Self.Body ==
+  Never`, the return type is `Never`. A dependent member type, such as
+  `Self.Body` or `T.Element`, is replaced with the other side. When both sides
+  are dependent member types, one consistent spelling is used.
 - Write normalized signatures with standard Swift spacing, such as
   `func map<T1>(_: (T0) -> T1) -> SwiftUI.Box<T1>`. Generic parameters are
   numbered from the outermost scope.

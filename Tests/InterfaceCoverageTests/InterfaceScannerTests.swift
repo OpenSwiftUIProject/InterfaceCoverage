@@ -226,6 +226,30 @@ struct InterfaceScannerTests {
         #expect(result.matched.contains { $0.name == "wrap" })
     }
 
+    @Test func sameTypeRequirementsCanonicalizeDependentTypes() throws {
+        let result = try compare(
+            """
+            public protocol Style { associatedtype Resolved }
+            extension SwiftUI.Style where Self.Resolved == Swift.Never { public func resolve() -> Swift.Never }
+            public protocol Modifier { associatedtype Body }
+            extension SwiftUI.Modifier where Self.Body == Swift.Never { public func body() -> Self.Body }
+            public func first<C, T>(_ c: C) -> C.Element where C: Swift.Collection, C.Element == T
+            public func pair<A, B>(_ a: A, _ b: B) -> A.Element where A: Swift.Sequence, B: Swift.Sequence, A.Element == B.Element
+            public func other<C>(_ c: C) -> C.Element where C: Swift.Collection, C.Index == Swift.Int
+            """,
+            """
+            public protocol Style { associatedtype Resolved }
+            extension OpenSwiftUI.Style where Self.Resolved == Swift.Never { public func resolve() -> Self.Resolved }
+            public protocol Modifier { associatedtype Body }
+            extension OpenSwiftUI.Modifier where Self.Body == Swift.Never { public func body() -> Swift.Never }
+            public func first<C, T>(_ c: C) -> T where C: Swift.Collection, C.Element == T
+            public func pair<A, B>(_ a: A, _ b: B) -> B.Element where A: Swift.Sequence, B: Swift.Sequence, A.Element == B.Element
+            public func other<C>(_ c: C) -> Swift.Int where C: Swift.Collection, C.Index == Swift.Int
+            """
+        )
+        #expect(result.missing.map(\.name) == ["other"])
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """

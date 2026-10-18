@@ -329,7 +329,52 @@ struct DeclarationContext {
 
     func constrained(_ signature: String) -> String {
         let requirements = Set(requirements).sorted()
-        return requirements.isEmpty ? signature : "\(signature) where \(requirements.joined(separator: ", "))"
+        guard !requirements.isEmpty else { return signature }
+        // A same-type requirement makes two spellings of one type equivalent.
+        // Use one spelling: replace a dependent member type, such as `Self.Body`
+        // or `T0.Element`, with the other side. If both sides are dependent
+        // member types, replace the greater one.
+        var signature = signature
+        for requirement in requirements {
+            let sides = requirement.components(separatedBy: " == ")
+            guard sides.count == 2 else { continue }
+            switch (Self.isDependentMember(sides[0]), Self.isDependentMember(sides[1])) {
+            case (true, false):
+                signature = Self.replacing(sides[0], with: sides[1], in: signature)
+            case (false, true), (true, true):
+                signature = Self.replacing(sides[1], with: sides[0], in: signature)
+            case (false, false):
+                break
+            }
+        }
+        return "\(signature) where \(requirements.joined(separator: ", "))"
+    }
+
+    private static func isDependentMember(_ type: String) -> Bool {
+        let parts = type.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count > 1, let root = parts.first,
+              root == "Self" || (root.first == "T" && root.dropFirst().allSatisfy(\.isNumber) && root.count > 1) else { return false }
+        return parts.dropFirst().allSatisfy { part in
+            part.first.map { $0.isLetter || $0 == "_" } == true && part.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+        }
+    }
+
+    /// Replaces whole type paths only, so `T0.Body` does not match `T0.BodyStyle` or `T10.Body`.
+    private static func replacing(_ target: String, with replacement: String, in text: String) -> String {
+        func isPathCharacter(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber || character == "_" || character == "."
+        }
+        var result = ""
+        var rest = text[...]
+        while let range = rest.range(of: target) {
+            let before = range.lowerBound == rest.startIndex ? result.last : rest[rest.index(before: range.lowerBound)]
+            let after = range.upperBound == rest.endIndex ? nil : rest[range.upperBound]
+            let isWhole = !(before.map(isPathCharacter) ?? false)
+                && !(after.map { $0.isLetter || $0.isNumber || $0 == "_" } ?? false)
+            result += rest[..<range.lowerBound] + (isWhole ? replacement : target)
+            rest = rest[range.upperBound...]
+        }
+        return result + rest
     }
 }
 
