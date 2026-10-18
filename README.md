@@ -237,6 +237,7 @@ Default module aliases are:
 | `OpenCombine` | `Combine` |
 | `OpenCombineFoundation` | `Combine` |
 | `OpenCombineDispatch` | `Combine` |
+| `OpenObservation` | `Observation` |
 
 Other module prefixes are kept. Alias chains are supported; cycles are errors.
 Files for different operating systems or simulator/device environments are

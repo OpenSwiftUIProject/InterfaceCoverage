@@ -49,7 +49,7 @@ struct CompareInterfaces: ParsableCommand {
     @Option(help: "Ignore a namespace container in owners and type paths on both sides. Repeat for more names.")
     var ignoreNamespace: [String] = []
 
-    @Flag(help: "Disable the built-in OpenSwiftUI and OpenCombine module aliases.")
+    @Flag(help: "Disable the built-in OpenSwiftUI, OpenCombine, and OpenObservation module aliases.")
     var noDefaultAliases = false
 
     @Flag(help: "Exclude declarations whose name or enclosing type starts with '_'.")

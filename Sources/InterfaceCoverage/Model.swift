@@ -57,6 +57,7 @@ public struct ScanOptions: Sendable, Codable {
             "OpenCombine": "Combine",
             "OpenCombineFoundation": "Combine",
             "OpenCombineDispatch": "Combine",
+            "OpenObservation": "Observation",
         ],
         ignoredNamespaces: [String] = [],
         excludeUnderscored: Bool = false,

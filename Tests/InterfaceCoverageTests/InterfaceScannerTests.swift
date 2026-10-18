@@ -102,6 +102,14 @@ struct InterfaceScannerTests {
         #expect(nearMisses.first?.extra.count == 2)
     }
 
+    @Test func openObservationMatchesObservationByDefault() throws {
+        let result = try compare(
+            "public func track<T>(_ value: T) where T: AnyObject, T: Observation.Observable",
+            "public func track<T>(_ value: T) where T: AnyObject, T: OpenObservation.Observable"
+        )
+        #expect(result.summary.matched == 1)
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """
