@@ -262,6 +262,8 @@ versions can differ because an interface can declare APIs newer than that target
   local parameter names, generic parameter names, and generic requirement order.
   Ignore the `__owned` and `__shared` parameter specifiers, which spell default
   ownership conventions. `borrowing`, `consuming`, and `inout` remain distinct.
+  In `@_opaqueReturnTypeOf` references, ignore the mangled name, which contains
+  the module name, and compare the owner, ordinal, and generic arguments.
   An inline generic constraint and the same `where` constraint are equivalent.
 - Operator parameters have no external labels. Their local names, such as
   `lhs`/`rhs` or `a`/`b`, are ignored for all operators, including `static ==`.

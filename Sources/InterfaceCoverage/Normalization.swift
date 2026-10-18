@@ -68,6 +68,11 @@ struct Normalization {
             if ["__owned", "__shared"].contains(raw), token.parent?.is(SimpleTypeSpecifierSyntax.self) == true {
                 return nil
             }
+            if let literal = opaqueReturnTypeName(containing: token) {
+                // The mangled name includes the module name. The owner and the
+                // ordinal already identify the opaque type.
+                return token.id == literal.openingQuote.id ? TokenSpelling(text: "_") : nil
+            }
             let text = raw.hasPrefix("`") && raw.hasSuffix("`") ? String(raw.dropFirst().dropLast()) : raw
             if let selector = token.parent?.as(ModuleSelectorSyntax.self) {
                 // Member selectors encode the declaring module, not another type-path component.
@@ -103,6 +108,14 @@ struct Normalization {
             index += 1
         }
         return result
+    }
+
+    private func opaqueReturnTypeName(containing token: TokenSyntax) -> StringLiteralExprSyntax? {
+        guard token.parent?.is(StringLiteralExprSyntax.self) == true || token.parent?.is(StringSegmentSyntax.self) == true,
+              let literal = token.ancestorOrSelf(mapping: { $0.as(StringLiteralExprSyntax.self) }),
+              let attribute = literal.ancestorOrSelf(mapping: { $0.as(AttributeSyntax.self) }),
+              attribute.attributeName.trimmedDescription == "_opaqueReturnTypeOf" else { return nil }
+        return literal
     }
 
     private func removingNamespaces(from tokens: [TokenSpelling]) -> [TokenSpelling] {

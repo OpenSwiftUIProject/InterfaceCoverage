@@ -127,6 +127,26 @@ struct InterfaceScannerTests {
         #expect(result.missing.map(\.name) == ["take"])
     }
 
+    @Test func opaqueReturnTypeReferencesIgnoreMangledNames() throws {
+        let result = try compare(
+            """
+            public struct Box<Content> {
+              public typealias Body = @_opaqueReturnTypeOf("$s7SwiftUI3BoxV4bodyQrvp", 0) __<Content>
+              public typealias Other = @_opaqueReturnTypeOf("$s7SwiftUI3BoxV5otherQrvp", 1) __<Content>
+            }
+            """,
+            """
+            public struct Box<Content> {
+              public typealias Body = @_opaqueReturnTypeOf("$s11OpenSwiftUI3BoxV4bodyQrvp", 0) __<Content>
+              public typealias Other = @_opaqueReturnTypeOf("$s11OpenSwiftUI3BoxV5otherQrvp", 0) __<Content>
+            }
+            """
+        )
+        #expect(result.summary.reference == 3)
+        #expect(result.summary.matched == 2)
+        #expect(result.missing.map(\.name) == ["Other"])
+    }
+
     @Test func overloadsReturnTypesAndExternalModulesRemainDistinct() throws {
         let result = try compare(
             """
