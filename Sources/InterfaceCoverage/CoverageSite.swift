@@ -140,7 +140,7 @@ public enum CoverageSite {
                     VersionSummary.Result(
                         target: row.target, baseline: row.baseline, scope: row.scope, profile: row.profile,
                         matched: row.summary.matched, reference: row.summary.reference, percent: row.summary.percent,
-                        url: link(to: row, siteURL: specification.siteURL)
+                        url: link(to: row, in: records, siteURL: specification.siteURL)
                     )
                 })
                 let path = "summary/\(slug(project))/\(fileName(version))"
@@ -204,16 +204,24 @@ public enum CoverageSite {
         String(text.map { $0.isLetter || $0.isNumber || "._-".contains($0) ? $0 : "-" })
     }
 
-    /// Links to a version and baseline with stable query parameters. Report IDs
-    /// change when a report is generated again.
-    private static func link(to row: SiteRecord, siteURL: String?) -> String {
-        var components = URLComponents()
-        components.queryItems = [
-            ("project", row.project), ("target", row.target), ("scope", row.scope), ("profile", row.profile),
-            ("baseline", row.baseline), ("version", row.version),
-        ].map { URLQueryItem(name: $0, value: $1) }
-        // Form decoding, as in `URLSearchParams`, reads `+` as a space.
-        let query = (components.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
+    /// Links to one bar of the chart. The site selects it with `report=<version>@<baseline>`.
+    /// As on the site, the target is always written, and other filters only when they differ
+    /// from the default: the first choice in manifest order.
+    private static func link(to row: SiteRecord, in records: [SiteRecord], siteURL: String?) -> String {
+        var items: [(String, String)] = []
+        var candidates = records
+        let filters: [(String, KeyPath<SiteRecord, String>)] = [("project", \.project), ("target", \.target), ("scope", \.scope), ("profile", \.profile)]
+        for (name, keyPath) in filters {
+            if name == "target" || candidates.first?[keyPath: keyPath] != row[keyPath: keyPath] {
+                items.append((name, row[keyPath: keyPath]))
+            }
+            candidates = candidates.filter { $0[keyPath: keyPath] == row[keyPath: keyPath] }
+        }
+        let baseline = row.baseline.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: "-")
+        items.append(("report", "\(row.version)@\(baseline)"))
+        // Encode spaces and `+` for form decoding, as in `URLSearchParams`, but keep `@` readable.
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~@")
+        let query = items.map { "\($0)=\($1.addingPercentEncoding(withAllowedCharacters: allowed) ?? $1)" }.joined(separator: "&")
         guard let siteURL else { return "../../index.html?\(query)" }
         return (siteURL.hasSuffix("/") ? siteURL : siteURL + "/") + "index.html?\(query)"
     }

@@ -261,12 +261,18 @@ named by content hash, so it removes the files that the new catalog does not
 use. It does not accept input reports inside its output.
 
 Select **Embed table** to copy an iframe for the current filters or download the
-group's complete Markdown/SVG table. Query parameters retain project, target,
-scope, profile, baseline, selected report, declaration status, kind, and search.
-A `version` parameter selects a version when no report is selected. Without
-either parameter, the newest version is selected. The chart scrolls to show the
-selected bar.
-The embedding page uses the same catalog and counts as the full report.
+group's complete Markdown/SVG table. The embedding page uses the same catalog and
+counts as the full report.
+
+The URL keeps the current view. `report=<version>@<baseline>` selects a bar,
+with the baseline as a lowercase slug, for example
+`target=iOS&report=0.23.1@ios-18.5`. `target` always appears. `project`,
+`scope`, and `profile` appear only when they differ from the default, the first
+choice in manifest order. `baseline` shows one baseline
+only, and `status`, `kind`, and `q` keep the declaration list state. Without a
+selection, the newest version is selected. When a filter changes, the selection
+keeps its version and baseline if the new view has them, and otherwise uses the
+same version or the nearest version. The chart scrolls to show the selected bar.
 
 The `site` command does not collect releases, build candidates, schedule runs, or
 deploy a site. It prepares the same output for local viewing and later CI publication.
@@ -284,9 +290,9 @@ The site also writes static files for other pages to use:
   target, baseline, scope, and profile. `summary/<project>/<version>.md` shows
   the same results as Markdown tables for release notes.
 
-Summary links use `version` and `baseline` query parameters, which stay valid
-when reports are generated again. Set `siteURL` in the manifest to make these
-links absolute.
+Summary links use the same `report=<version>@<baseline>` selection, always
+include `target`, and leave out other default filters, so they stay valid when reports are generated again. Set
+`siteURL` in the manifest to make these links absolute.
 
 ```text
 https://img.shields.io/endpoint?url=https://openswiftuiproject.github.io/InterfaceCoverage/badges/openswiftui-ios-ios-18-5-swiftui-swiftuicore-default.json

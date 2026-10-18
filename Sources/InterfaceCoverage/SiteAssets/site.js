@@ -8,10 +8,23 @@
   const state = {
     project: query.get("project"), target: query.get("target"), scope: query.get("scope"),
     profile: query.get("profile"), baseline: query.get("baseline") || "",
-    report: query.get("report"), version: query.get("version"), status: query.get("status") || "missing",
+    report: null, selection: parseSelection(query.get("report")), status: query.get("status") || "missing",
     search: query.get("q") || "", kind: query.get("kind") || "", page: 0,
   };
   const $ = id => document.getElementById(id);
+  const baselineSlug = baseline => baseline.toLowerCase().replace(/\s+/g, "-");
+  // A URL selects a bar as `<version>@<baseline>`, with the baseline as a slug, such as `0.23.1@ios-18.5`.
+  const selectionKey = record => `${record.version}@${baselineSlug(record.baseline)}`;
+
+  function parseSelection(value) {
+    const index = value?.lastIndexOf("@") ?? -1;
+    return index > 0 ? {version: value.slice(0, index), baseline: value.slice(index + 1)} : null;
+  }
+
+  // Keeps `@` readable in a query string.
+  function queryString(params) {
+    return [...params].map(([key, value]) => `${key}=${encodeURIComponent(value).replace(/%40/g, "@")}`).join("&");
+  }
   const unique = values => [...new Set(values)];
   const number = value => value.toLocaleString("en-US");
   const percent = count => count.reference ? `${(100 * count.matched / count.reference).toFixed(2)}%` : "n/a";
@@ -56,11 +69,17 @@
 
   function parameters(includeDetail = true) {
     const params = new URLSearchParams();
-    for (const key of ["project", "target", "scope", "profile", "baseline"]) {
-      if (state[key]) params.set(key, state[key]);
+    // Write the target always, and other filters only when they differ from the default,
+    // the first choice in manifest order.
+    let filtered = reports;
+    for (const key of ["project", "target", "scope", "profile"]) {
+      if (state[key] && (key === "target" || state[key] !== filtered[0]?.[key])) params.set(key, state[key]);
+      filtered = filtered.filter(row => row[key] === state[key]);
     }
+    if (state.baseline) params.set("baseline", state.baseline);
     if (includeDetail) {
-      if (state.report) params.set("report", state.report);
+      const record = reports.find(row => row.id === state.report);
+      if (record) params.set("report", selectionKey(record));
       if (state.status !== "missing") params.set("status", state.status);
       if (state.search) params.set("q", state.search);
       if (state.kind) params.set("kind", state.kind);
@@ -70,7 +89,7 @@
 
   function saveURL() {
     // A local HTTP server and GitHub Pages both support shareable filter URLs.
-    if (location.protocol !== "file:") history.replaceState(null, "", `?${parameters(!embedded)}`);
+    if (location.protocol !== "file:") history.replaceState(null, "", `?${queryString(parameters(!embedded))}`);
   }
 
   function choices(key, values, allLabel) {
@@ -90,6 +109,7 @@
     $("projects").replaceChildren(...projects.map(project => button(project, state.project === project, () => {
       state.project = project;
       state.report = null;
+      state.selection = null;
       render();
     })));
     let filtered = reports.filter(row => row.project === state.project);
@@ -194,7 +214,7 @@
     for (const [index, baseline] of baselines.entries()) {
       const item = button(undefined, !state.baseline || state.baseline === baseline, () => {
         state.baseline = state.baseline === baseline ? "" : baseline;
-        state.report = null;
+        keepSelection();
         state.kind = "";
         render();
         $("chart").querySelectorAll(".chart-legend button")[index].focus({preventScroll: true});
@@ -344,7 +364,7 @@
         const cell = button(undefined, record.id === state.report, () => {
           if (embedded) {
             const params = parameters(false);
-            params.set("report", record.id);
+            params.set("report", selectionKey(record));
             window.open(`index.html?${params}`, "_blank", "noopener");
           } else selectReport(record);
         }, "matrix-cell");
@@ -357,17 +377,41 @@
     if (embedded) {
       $("matrix-title").textContent = `${state.project} interface coverage`;
       $("matrix-description").textContent = `${state.target} · ${state.scope} · ${state.profile}`;
-      $("full-report").href = `index.html?${parameters(false)}`;
+      $("full-report").href = `index.html?${queryString(parameters(false))}`;
     }
+  }
+
+  // Keeps the selected version and baseline when the filters change.
+  function keepSelection() {
+    const record = reports.find(row => row.id === state.report);
+    state.selection = record ? {version: record.version, baseline: baselineSlug(record.baseline)} : null;
+    state.report = null;
+  }
+
+  // Selects the requested version and baseline. Under the current filters, it falls back to the
+  // same version with another baseline, then the nearest version. Without a request, it selects
+  // the newest version.
+  function resolveSelection() {
+    const current = rows.find(row => row.id === state.report);
+    if (current) return current;
+    const wanted = state.selection;
+    const order = versionOrder(unique(rows.map(row => row.version)));
+    let version = order.at(-1);
+    if (wanted && order.includes(wanted.version)) {
+      version = wanted.version;
+    } else if (wanted) {
+      const all = versionOrder([...order, wanted.version]);
+      const index = all.indexOf(wanted.version);
+      version = all[index - 1] ?? all[index + 1] ?? version;
+    }
+    const candidates = rows.filter(row => row.version === version);
+    return candidates.find(row => wanted && baselineSlug(row.baseline) === wanted.baseline) || candidates[0] || rows[0];
   }
 
   function render() {
     renderFilters();
-    // Summary links name a version, because report IDs change when reports are generated again.
-    // Without a report or version, select the newest version.
-    const version = state.version || versionOrder(unique(rows.map(row => row.version))).at(-1);
-    const selected = rows.find(row => row.id === state.report) || rows.find(row => row.version === version) || rows[0];
-    state.version = null;
+    const selected = resolveSelection();
+    state.selection = null;
     state.report = selected.id;
     renderOverview();
     if (!embedded) selectReport(selected, true);
@@ -543,7 +587,7 @@
   for (const key of ["target", "scope", "profile", "baseline"]) {
     $(key).addEventListener("change", () => {
       state[key] = $(key).value;
-      state.report = null;
+      keepSelection();
       state.kind = "";
       render();
     });
@@ -566,7 +610,7 @@
   $("next").addEventListener("click", () => { state.page++; renderEntries(); });
   $("embed-button").addEventListener("click", () => {
     const url = new URL("embed.html", location.href);
-    url.search = parameters(false).toString();
+    url.search = queryString(parameters(false));
     $("embed-code").value = `<iframe src="${url.href.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}" title="Interface coverage" width="100%" height="360" style="border:0" loading="lazy"></iframe>`;
     $("embed-preview").href = url.href;
     $("markdown-download").href = `tables/${current.group}.md`;

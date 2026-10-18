@@ -231,7 +231,9 @@ struct CoverageSiteTests {
         older["version"] = "0.9.0"
         older["baseline"] = "iOS 18.5"
         older["scope"] = "A + B"
-        let output = try generate(root, rows: [newer, older], siteURL: "https://example.com/coverage/")
+        var otherScope = older
+        otherScope["scope"] = "C + D"
+        let output = try generate(root, rows: [newer, older, otherScope], siteURL: "https://example.com/coverage/")
         let badgeURL = output.appendingPathComponent("badges/example-macos-ios-18-5-a-b-default.json")
         let badge = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: badgeURL)) as? [String: Any])
         #expect(badge["schemaVersion"] as? Int == 1)
@@ -240,12 +242,12 @@ struct CoverageSiteTests {
         let summaryURL = output.appendingPathComponent("summary/example/0.9.0.json")
         let summary = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: summaryURL)) as? [String: Any])
         let results = try #require(summary["results"] as? [[String: Any]])
-        #expect(results.count == 1)
+        #expect(results.count == 2)
         #expect(results.first?["matched"] as? Int == 0)
-        let link = try #require(results.first?["url"] as? String)
-        #expect(link.hasPrefix("https://example.com/coverage/index.html?"))
-        #expect(link.contains("version=0.9.0"))
-        #expect(link.contains("scope=A%20%2B%20B"))
+        // The target is always written, and other default filters are left out.
+        // A selection is the version and the baseline slug.
+        #expect(results.first?["url"] as? String == "https://example.com/coverage/index.html?target=macOS&report=0.9.0@ios-18.5")
+        #expect(results.last?["url"] as? String == "https://example.com/coverage/index.html?target=macOS&scope=C%20%2B%20D&report=0.9.0@ios-18.5")
         let markdown = try String(contentsOf: output.appendingPathComponent("summary/example/0.9.0.md"), encoding: .utf8)
         #expect(markdown.contains("| iOS 18.5 | [0.00%]("))
     }
